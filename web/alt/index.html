@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>1H-Agent · 精简视图</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0 auto; max-width: 720px; padding: 16px; }
+    header { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    select, input, textarea, button { font: inherit; padding: 6px; border-radius: 6px; }
+    #sessions { display: flex; gap: 6px; flex-wrap: wrap; }
+    #sessions button { cursor: pointer; }
+    #log { margin: 16px 0; display: flex; flex-direction: column; gap: 8px; min-height: 40vh; }
+    .msg { padding: 8px 10px; border-radius: 8px; background: rgba(127,127,127,.12); white-space: pre-wrap; }
+    .user { align-self: flex-end; }
+    .user::before { content: "你 · "; opacity: .6; }
+    .assistant::before { content: "Agent · "; opacity: .6; }
+    .tool { font-size: .85em; opacity: .85; }
+    .thinking { opacity: .55; font-style: italic; }
+    .status { min-height: 1.2em; color: inherit; opacity: .7; }
+    #composer { width: 100%; box-sizing: border-box; }
+    .row { display: flex; gap: 8px; }
+    #approval { display: none; border: 1px solid; padding: 10px; border-radius: 8px; margin: 8px 0; }
+    #approval.open { display: block; }
+    pre { margin: 4px 0; overflow: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>1H-Agent</h1>
+    <span class="status" id="status"></span>
+  </header>
+
+  <section id="sessions"></section>
+
+  <section id="approval">
+    <div><strong>需要审批</strong></div>
+    <div id="approval-reason"></div>
+    <pre id="approval-call"></pre>
+    <button id="approval-reject">拒绝</button>
+    <button id="approval-accept">允许</button>
+  </section>
+
+  <main id="log"></main>
+
+  <footer class="row">
+    <textarea id="composer" rows="2" placeholder="消息、/ 命令、! Shell…（Enter 发送）"></textarea>
+    <button id="send">发送</button>
+  </footer>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

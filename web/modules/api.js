@@ -1,5 +1,7 @@
 // Thin REST + SSE client. All endpoints are same-origin; no keys ever cross
-// the wire from the browser (the server never returns them).
+// the wire from the browser (the server never returns them). This is the only
+// module allowed to issue fetch() / build EventSource; it never touches the
+// DOM and never holds UI state.
 
 async function jsonRequest(method, url, body) {
   const options = { method, headers: {} };
@@ -46,15 +48,16 @@ export function openEventStream({ onEvent, onOpen, onError }) {
       try {
         onEvent?.(JSON.parse(event.data));
       } catch (error) {
-        // Surface handler errors (e.g. a rendering bug) instead of silently
-        // dropping the frame; the stream stays alive either way.
-        const status = document.getElementById('chat-status');
-        if (status) status.textContent = `事件处理错误：${error?.message || error}`;
+        // Frame/parse errors stay in the transport layer; the stream stays
+        // alive. View feedback is the caller's job (onError is not fired here
+        // because the connection itself is fine).
+        console.error('SSE frame handling error:', error);
       }
     };
     source.onerror = () => {
       // EventSource auto-reconnects; the browser sends Last-Event-ID on the
-      // retry. Only surface persistent failures to the caller.
+      // retry. This is the single error notification path for the caller; it
+      // never touches the DOM (views decide what to surface).
       onError?.();
     };
   }

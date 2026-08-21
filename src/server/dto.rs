@@ -11,9 +11,21 @@ use serde::Serialize;
 
 use crate::{agent::AgentEvent, model::TodoTask, provider::ToolCall};
 
+/// Current version of the browser-facing wire protocol (REST + SSE DTOs).
+/// Additive-only: new `EventDto` types and new fields must be ignorable by
+/// older UIs. Breaking changes (renames, repurposed types) must bump this and
+/// the matching version in the frontend boot check.
+pub const PROTOCOL_VERSION: u32 = 1;
+
 /// One agent event, serialized for the browser. The `type` field is the event
 /// discriminator; the event's owning `session_id` is always included so a
 /// single global SSE stream can be routed client-side.
+///
+/// 对外契约，加法演进 (external contract, additive evolution): the `type` set
+/// and field shapes are the authoritative wire contract referenced by
+/// .agents/guides/ui-contract.md. New variants/fields must be ignorable by
+/// older UIs; do not rename, reorder, or reuse an old `type` with a different
+/// payload without bumping [`PROTOCOL_VERSION`].
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EventDto {
@@ -268,8 +280,14 @@ pub struct SessionStateDto {
 }
 
 /// Serialized form of the whole application state used by `GET /api/state`.
+///
+/// 对外契约，加法演进 (external contract, additive evolution): `protocol_version`
+/// lets a frontend reject an incompatible server instead of misreading state.
+/// New fields must be additive and ignorable by older UIs.
 #[derive(Clone, Debug, Serialize)]
 pub struct AppStateDto {
+    /// Wire protocol version; the frontend boot check compares against its own.
+    pub protocol_version: u32,
     pub active_session: Option<String>,
     pub sessions: Vec<SessionStateDto>,
     pub provider: String,
@@ -415,6 +433,141 @@ mod tests {
             let json = serde_json::to_value(dto.unwrap()).unwrap();
             assert!(json.get("type").is_some(), "dto must carry a type tag");
             assert_eq!(json["session_id"], "s1");
+        }
+    }
+
+    #[test]
+    fn every_dto_variant_carries_a_snake_case_type_tag() {
+        // Exhaustive over the wire type set: every variant must serialize with
+        // a `type` discriminator whose value is snake_case. This is the
+        // contract locked by .agents/guides/ui-contract.md (EventDto 类型集).
+        let call = ToolCall {
+            id: "c".into(),
+            name: "file_read".into(),
+            arguments: serde_json::json!({"path": "a.txt"}),
+        };
+        let todo = TodoTask {
+            id: "t1".into(),
+            title: "ship".into(),
+            status: crate::model::TodoStatus::Pending,
+            created_at: "now".into(),
+            updated_at: "now".into(),
+        };
+        let variants: Vec<EventDto> = vec![
+            EventDto::ReasoningDelta {
+                session_id: "s".into(),
+                delta: "d".into(),
+            },
+            EventDto::ProviderRetry {
+                session_id: "s".into(),
+                attempt: 1,
+                reason: "r".into(),
+                delay_ms: 100,
+            },
+            EventDto::ModelStreaming {
+                session_id: "s".into(),
+            },
+            EventDto::WebSearchStarted {
+                session_id: "s".into(),
+                query: "q".into(),
+            },
+            EventDto::WebSearchResult {
+                session_id: "s".into(),
+                title: "t".into(),
+                url: "u".into(),
+                snippet: "sn".into(),
+            },
+            EventDto::WebSearchCompleted {
+                session_id: "s".into(),
+                count: 1,
+            },
+            EventDto::Cancelled {
+                session_id: "s".into(),
+                reason: "r".into(),
+            },
+            EventDto::TextDelta {
+                session_id: "s".into(),
+                delta: "d".into(),
+            },
+            EventDto::Approval {
+                session_id: "s".into(),
+                approval_id: "ap".into(),
+                call: call.clone(),
+                reason: "r".into(),
+                source_session_id: None,
+                source_title: None,
+            },
+            EventDto::ApprovalResolved {
+                session_id: "s".into(),
+                approval_id: "ap".into(),
+                approved: true,
+            },
+            EventDto::ToolStarted {
+                session_id: "s".into(),
+                call: call.clone(),
+            },
+            EventDto::ToolFinished {
+                session_id: "s".into(),
+                call: call.clone(),
+                result: "ok".into(),
+            },
+            EventDto::Usage {
+                session_id: "s".into(),
+                input_tokens: 1,
+                output_tokens: 2,
+                total_tokens: 3,
+            },
+            EventDto::Completed {
+                session_id: "s".into(),
+            },
+            EventDto::Failed {
+                session_id: "s".into(),
+                error: "e".into(),
+            },
+            EventDto::SessionsChanged {
+                session_id: "s".into(),
+            },
+            EventDto::ChildSessionProgress {
+                session_id: "s".into(),
+                child_session_id: "c".into(),
+                status: "running".into(),
+                turn: 1,
+                max_turns: 2,
+                tool: None,
+            },
+            EventDto::LocalCommandFinished {
+                session_id: "s".into(),
+                command: "c".into(),
+                result: "r".into(),
+            },
+            EventDto::CompactionStarted {
+                session_id: "s".into(),
+            },
+            EventDto::CompactionCompleted {
+                session_id: "s".into(),
+                hidden: 1,
+            },
+            EventDto::CompactionFailed {
+                session_id: "s".into(),
+                error: "e".into(),
+            },
+            EventDto::TodoUpdated {
+                session_id: "s".into(),
+                tasks: vec![todo],
+            },
+        ];
+        assert!(!variants.is_empty());
+        for variant in variants {
+            let json = serde_json::to_value(variant).expect("dto serializes");
+            let type_tag = json["type"].as_str().expect("dto must carry a type tag");
+            assert!(
+                type_tag.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+                    && type_tag
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_ascii_lowercase()),
+                "type tag must be snake_case, got {type_tag:?}"
+            );
         }
     }
 

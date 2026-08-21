@@ -477,6 +477,7 @@ fn state_snapshot(machine: &Machine) -> Result<AppStateDto, String> {
         .map(TodoDto::from)
         .collect::<Vec<_>>();
     Ok(AppStateDto {
+        protocol_version: dto::PROTOCOL_VERSION,
         active_session,
         sessions,
         provider: app.config.provider.preset.label().to_owned(),

@@ -30,6 +30,7 @@ migration: WebUI 改造已完成，权威计划见 design/webui-migration.md
 | --- | --- | --- |
 | 启动、全局状态、会话路由 | `src/main.rs`、`src/server/mod.rs`、`src/session.rs` | [Runtime](.agents/guides/runtime.md)；仅沿目标事件链读取 |
 | HTTP/SSE 面、事件 DTO、前端资源、命令端点 | `src/server/` | [WebUI](.agents/guides/webui.md) |
+| UI 通用接口、线协议契约、前端分层、任何消费端接入 | `src/server/dto.rs`、`src/server/events.rs`、`web/modules/`、`web/views/` | [UI Contract](.agents/guides/ui-contract.md)；仅改线协议/前端分层/接新消费端时读 |
 | Provider、模型、密钥、协议、压缩恢复 | `src/config.rs`、`src/agent.rs`、`src/provider/openai.rs` | [Provider](.agents/guides/provider.md) |
 | 子 Agent、审批、取消、集群停滞 | `src/agent.rs`、`src/server/mod.rs` | [Cluster](.agents/guides/cluster.md) |
 | 工具、路径、SSRF、外部进程 | `src/tools/`、`src/security.rs` | [Tools](.agents/guides/tools.md) |

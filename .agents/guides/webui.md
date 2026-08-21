@@ -22,6 +22,8 @@ HTTP/SSE 服务面、事件 DTO 序列化、审批待决表、静态前端资源
 - 请求体、URL 参数和事件缓冲全部有硬上限；SSE 连接有空闲超时与关闭清理；客户端断开不取消 agent 任务，取消只经取消端点。
 - 事件 DTO 用 serde tag+payload；新增 `AgentEvent` 变体必须一次接通：agent forward 闭包 -> `session.rs handle_event` -> `EventBridge` DTO 分支 -> 前端处理，漏一处前端表现为静默丢事件。
 - 前端复刻语义约束：首页不预建会话、首条消息才创建；后台容量由服务端 enforce，前端只展示。
+- 线协议是对外契约，加法演进：新增 EventDto 类型/字段须容忍旧 UI 忽略，禁止改语义或复用旧 type；前端分层 transport -> store -> view，只有 transport 触网络、view 触 DOM，换 UI 只替换 view 层。契约见 .agents/guides/ui-contract.md。
+- 服务端面消费端无关：浏览器经 HTTP/SSE 消费；未来进程内 TUI 复用同一 `ServerCommand`/`EventBridge` 通道与 `EventDto` 契约，禁止第二套命令/事件通路。契约与接入点见 .agents/guides/ui-contract.md。
 
 ## 诊断
 
