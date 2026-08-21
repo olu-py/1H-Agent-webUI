@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>1H-Agent</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app" class="app">
+    <!-- Home screen: shown until a session is active -->
+    <section id="home" class="home hidden">
+      <header class="home-header">
+        <h1>1H-Agent</h1>
+        <p class="home-subtitle">轻量、权限感知的浏览器 Agent</p>
+      </header>
+
+      <div class="home-provider">
+        <label for="home-provider">Provider</label>
+        <select id="home-provider"></select>
+        <label for="home-model">模型</label>
+        <input id="home-model" type="text" spellcheck="false">
+      </div>
+
+      <form id="home-form" class="home-form">
+        <textarea id="home-input" rows="3" placeholder="输入首条消息开始…（支持 / 命令，! 执行 Shell，@ 附加文件）"></textarea>
+        <div class="home-actions">
+          <button type="submit" class="primary" id="home-submit">开始</button>
+          <button type="button" id="home-resume" class="ghost">恢复会话</button>
+        </div>
+      </form>
+
+      <ul id="home-sessions" class="home-sessions"></ul>
+    </section>
+
+    <!-- Main chat screen -->
+    <section id="chat" class="chat hidden">
+      <header class="chat-header">
+        <button id="btn-home" title="返回首页">‹</button>
+        <div class="chat-title">
+          <span id="chat-session-title"></span>
+          <span id="chat-session-meta" class="meta"></span>
+        </div>
+        <div class="chat-controls">
+          <select id="chat-mode" title="Agent 模式"></select>
+          <button id="btn-todo" class="ghost" title="任务清单">✓</button>
+          <button id="btn-sessions" class="ghost" title="切换会话">☰</button>
+        </div>
+      </header>
+
+      <div id="session-panel" class="session-panel hidden">
+        <ul id="session-list"></ul>
+      </div>
+
+      <main id="messages" class="messages"></main>
+
+      <footer class="composer">
+        <div id="completion" class="completion hidden"></div>
+        <div class="composer-row">
+          <textarea id="composer" rows="1" placeholder="输入消息，/ 命令，! Shell，@ 附加文件（Enter 发送，Shift+Enter 换行）"></textarea>
+          <button id="composer-send" class="primary" title="发送">↵</button>
+        </div>
+        <div id="chat-status" class="status"></div>
+      </footer>
+    </section>
+
+    <!-- Todo window -->
+    <div id="todo-window" class="todo-window hidden">
+      <header>任务清单 <button id="todo-close" class="ghost">×</button></header>
+      <ul id="todo-list"></ul>
+      <form id="todo-add">
+        <input id="todo-input" placeholder="添加任务…">
+        <button type="submit" class="primary">+</button>
+      </form>
+    </div>
+
+    <!-- Approval modal -->
+    <div id="approval" class="modal hidden">
+      <div class="modal-card">
+        <h3>需要审批</h3>
+        <p id="approval-reason" class="approval-reason"></p>
+        <pre id="approval-call" class="approval-call"></pre>
+        <div class="approval-actions">
+          <button id="approval-reject" class="danger">拒绝</button>
+          <button id="approval-accept" class="primary">允许</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

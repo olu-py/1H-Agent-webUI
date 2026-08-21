@@ -93,24 +93,24 @@ pub struct App {
     pub expanded_sessions: HashSet<String>,
     pub child_status: HashMap<String, ChildSessionProgress>,
     pub child_batches: HashMap<String, HashSet<String>>,
-    storage: Storage,
-    config: Config,
-    registry: Arc<ToolRegistry>,
-    approval_lock: Arc<Mutex<()>>,
-    active_secret: Option<(ProviderPreset, String)>,
-    active_session: String,
+    pub(crate) storage: Storage,
+    pub(crate) config: Config,
+    pub(crate) registry: Arc<ToolRegistry>,
+    pub(crate) approval_lock: Arc<Mutex<()>>,
+    pub(crate) active_secret: Option<(ProviderPreset, String)>,
+    pub(crate) active_session: String,
     pub current: SessionRuntime,
-    background: HashMap<String, SessionRuntime>,
-    router_tx: mpsc::Sender<RoutedEvent>,
-    router_rx: mpsc::Receiver<RoutedEvent>,
-    should_quit: bool,
+    pub(crate) background: HashMap<String, SessionRuntime>,
+    pub(crate) router_tx: mpsc::Sender<RoutedEvent>,
+    pub(crate) router_rx: mpsc::Receiver<RoutedEvent>,
+    pub(crate) should_quit: bool,
 }
 
 /// An agent event tagged with the session it belongs to, so a single channel
 /// can route events to any background session in O(1).
-struct RoutedEvent {
-    session_id: String,
-    event: AgentEvent,
+pub(crate) struct RoutedEvent {
+    pub(crate) session_id: String,
+    pub(crate) event: AgentEvent,
 }
 
 pub async fn run(workspace_path: PathBuf, mut config: Config) -> Result<()> {
@@ -252,7 +252,10 @@ fn resolve_home_action(
     }
 }
 
-async fn build_app(
+/// Builds the application state machine (sessions, runtimes, registry, router
+/// channel) without touching the terminal. Shared by the TUI event loop and
+/// the WebUI server, which only replaces the `router_rx` consumer.
+pub(crate) async fn build_app(
     workspace_path: PathBuf,
     config: Config,
     storage: Storage,
@@ -923,7 +926,7 @@ pub(crate) fn provider_choices(app: &App) -> Vec<ProviderPreset> {
     choices
 }
 
-fn apply_provider_choice(app: &mut App, preset: ProviderPreset) -> Result<()> {
+pub(crate) fn apply_provider_choice(app: &mut App, preset: ProviderPreset) -> Result<()> {
     if preset == app.config.provider.preset {
         return Ok(());
     }
@@ -1048,7 +1051,7 @@ fn handle_provider_menu_key(app: &mut App, code: KeyCode) -> Result<()> {
     Ok(())
 }
 
-fn apply_model_choice(app: &mut App, model: String) -> Result<()> {
+pub(crate) fn apply_model_choice(app: &mut App, model: String) -> Result<()> {
     if model.trim().is_empty() {
         return Ok(());
     }
@@ -1646,7 +1649,7 @@ impl App {
     }
 }
 
-fn cancel_active_request(app: &mut App) {
+pub(crate) fn cancel_active_request(app: &mut App) {
     if let Some(approval) = app.current.take_pending_approval() {
         app.force_full_redraw = true;
         if let ApprovalAction::Agent(reply) = approval.action {
@@ -1667,7 +1670,7 @@ fn cancel_active_request(app: &mut App) {
     });
 }
 
-fn submit_input(app: &mut App) -> Result<()> {
+pub(crate) fn submit_input(app: &mut App) -> Result<()> {
     let input = app.input.as_str().trim().to_owned();
     if input.is_empty() {
         return Ok(());
@@ -2008,7 +2011,7 @@ fn execute_palette_action(app: &mut App, action: commands::PaletteAction) -> Res
     }
 }
 
-fn execute_command(app: &mut App, command: Command) -> Result<()> {
+pub(crate) fn execute_command(app: &mut App, command: Command) -> Result<()> {
     match command {
         Command::Help => {
             app.current.push_entry(DisplayEntry {
@@ -2206,7 +2209,7 @@ fn execute_command(app: &mut App, command: Command) -> Result<()> {
     Ok(())
 }
 
-fn handle_todo_command(app: &mut App, action: TodoCommand) -> Result<()> {
+pub(crate) fn handle_todo_command(app: &mut App, action: TodoCommand) -> Result<()> {
     match action {
         TodoCommand::Show => {
             app.current.todo_hidden = false;
@@ -2309,7 +2312,7 @@ fn apply_todo_tasks(app: &mut App, tasks: Vec<TodoTask>) -> Result<()> {
     Ok(())
 }
 
-fn export_session(app: &mut App, requested: Option<String>) -> Result<()> {
+pub(crate) fn export_session(app: &mut App, requested: Option<String>) -> Result<()> {
     let requested = requested
         .as_deref()
         .map(str::trim)
@@ -2364,7 +2367,7 @@ fn export_session(app: &mut App, requested: Option<String>) -> Result<()> {
     Ok(())
 }
 
-fn rebuild_runner(app: &mut App) -> Result<()> {
+pub(crate) fn rebuild_runner(app: &mut App) -> Result<()> {
     let Some((_, api_key)) = &app.active_secret else {
         app.current.runner = None;
         return Ok(());
@@ -2395,7 +2398,7 @@ fn rebuild_runner(app: &mut App) -> Result<()> {
     Ok(())
 }
 
-fn start_diff(app: &mut App) -> Result<()> {
+pub(crate) fn start_diff(app: &mut App) -> Result<()> {
     if app.current.busy {
         return Ok(());
     }
@@ -2589,7 +2592,7 @@ fn apply_settings(app: &mut App) -> Result<()> {
 /// are applied directly and trigger a redraw; events for a background session
 /// are applied to that session's runtime in place, without redrawing or
 /// disturbing the active session's status.
-fn handle_routed_event(app: &mut App, routed: RoutedEvent) -> bool {
+pub(crate) fn handle_routed_event(app: &mut App, routed: RoutedEvent) -> bool {
     let RoutedEvent { session_id, event } = routed;
     let is_active = session_id == app.active_session;
     if let AgentEvent::ChildSessionProgress {
@@ -2717,7 +2720,7 @@ pub(crate) fn braille_spinner_supported() -> bool {
 
 /// How a pending approval prompt was answered.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ApprovalChoice {
+pub(crate) enum ApprovalChoice {
     Approve,
     Reject,
     /// Grant a session-scoped, in-process always-allow for this call's tool
@@ -2725,7 +2728,7 @@ enum ApprovalChoice {
     AlwaysSession,
 }
 
-fn resolve_approval(app: &mut App, choice: ApprovalChoice) {
+pub(crate) fn resolve_approval(app: &mut App, choice: ApprovalChoice) {
     if let Some((owner, approval)) = app.take_pending_approval_global() {
         app.force_full_redraw = true;
         let approved = !matches!(choice, ApprovalChoice::Reject);
@@ -2810,7 +2813,7 @@ fn session_allow_for_call(call: &ToolCall) -> (String, Option<String>, String) {
     }
 }
 
-fn request_shell_approval(app: &mut App, command: String) -> Result<()> {
+pub(crate) fn request_shell_approval(app: &mut App, command: String) -> Result<()> {
     let call = ToolCall {
         id: format!("shell_{}", uuid::Uuid::new_v4()),
         name: "terminal_shell".into(),
@@ -2830,7 +2833,7 @@ fn request_shell_approval(app: &mut App, command: String) -> Result<()> {
     Ok(())
 }
 
-fn create_session(app: &mut App) -> Result<()> {
+pub(crate) fn create_session(app: &mut App) -> Result<()> {
     let session_id = app.storage.create_session(&app.workspace)?;
     activate_session(app, session_id)?;
     refresh_sessions(app)?;
@@ -2851,7 +2854,7 @@ fn next_mode(mode: AgentMode) -> AgentMode {
 /// clicking the mode label in the input title. It updates UI state,
 /// tool permissions, persistence, and clears the provider response id so the
 /// next request uses the new mode contract.
-fn switch_mode(app: &mut App, mode: AgentMode) -> Result<()> {
+pub(crate) fn switch_mode(app: &mut App, mode: AgentMode) -> Result<()> {
     app.current.mode = mode;
     app.registry.set_mode(mode);
     let _ = app
@@ -3070,7 +3073,7 @@ fn build_runtime(
     }
 }
 
-fn reload_current_session(app: &mut App) -> Result<()> {
+pub(crate) fn reload_current_session(app: &mut App) -> Result<()> {
     let session_id = app.active_session.clone();
     let active_secret = app.active_secret.clone();
     let target = build_runtime(
@@ -3155,7 +3158,7 @@ fn restore_snapshots(app: &mut App, turn_id: &str, direction: SnapshotDirection)
     }
 }
 
-fn activate_session(app: &mut App, session_id: String) -> Result<()> {
+pub(crate) fn activate_session(app: &mut App, session_id: String) -> Result<()> {
     if session_id == app.active_session {
         return Ok(());
     }
@@ -3193,7 +3196,7 @@ fn activate_session(app: &mut App, session_id: String) -> Result<()> {
     Ok(())
 }
 
-fn evict_background_overflow(app: &mut App) {
+pub(crate) fn evict_background_overflow(app: &mut App) {
     let capacity = app.config.runtime.max_background_sessions;
     while app.background.len() > capacity {
         let eviction_id = app
@@ -3216,7 +3219,7 @@ fn evict_background_overflow(app: &mut App) {
     }
 }
 
-fn refresh_sessions(app: &mut App) -> Result<()> {
+pub(crate) fn refresh_sessions(app: &mut App) -> Result<()> {
     app.sessions = app.storage.list_sessions(&app.workspace)?;
     let live_ids = app
         .sessions
@@ -3261,7 +3264,7 @@ impl App {
             .map(|(_, approval)| approval)
     }
 
-    fn take_pending_approval_global(&mut self) -> Option<(String, PendingApproval)> {
+    pub(crate) fn take_pending_approval_global(&mut self) -> Option<(String, PendingApproval)> {
         let mut owner = self
             .current
             .pending_approval
@@ -3287,7 +3290,7 @@ impl App {
         Some((owner, approval))
     }
 
-    fn runtime_mut(&mut self, session_id: &str) -> Option<&mut SessionRuntime> {
+    pub(crate) fn runtime_mut(&mut self, session_id: &str) -> Option<&mut SessionRuntime> {
         if session_id == self.active_session {
             Some(&mut self.current)
         } else {

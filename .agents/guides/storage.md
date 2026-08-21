@@ -7,7 +7,7 @@
 ## 入口
 
 - `src/storage.rs`：`from_connection`（建表 + `ensure_column` 兼容旧库 + `backfill_turns`）、全部读写方法。
-- `src/app.rs`：undo/redo/delete/fork 命令与 `reload_current_session` 的存储交互。
+- `src/app.rs`（迁移完成后为 `src/server/mod.rs`）：undo/redo/delete/fork 命令与 `reload_current_session` 的存储交互。
 
 ## 不变量
 

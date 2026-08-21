@@ -36,6 +36,17 @@ context_meter = true
 # Qwen's current China endpoint contains your Bailian WorkspaceId:
 # https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
 
+[server]
+# HTTP/SSE service bind address. Defaults to loopback; a non-loopback bind
+# requires token auth (the token is generated into the data directory and
+# printed once at startup). Port is clamped to 1024..=65535.
+bind = "127.0.0.1"
+port = 7788
+# Per-session SSE replay ring size (clamped to 16..=4096).
+# event_buffer = 512
+# Pending approvals auto-reject after this many seconds (clamped to 10..=3600).
+# approval_timeout_seconds = 300
+
 [runtime]
 command_timeout_seconds = 60
 max_tool_output_bytes = 1048576

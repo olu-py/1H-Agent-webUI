@@ -11,6 +11,7 @@ pub mod prompt;
 pub mod provider;
 pub mod secrets;
 pub mod security;
+pub mod server;
 pub mod session;
 pub mod settings;
 pub mod storage;

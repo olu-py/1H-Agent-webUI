@@ -25,3 +25,6 @@ config.toml
 *.msi
 *.zip
 *.tar.gz
+
+# GUI test evidence (not project source)
+/gui-test-screenshots/
