@@ -15,7 +15,7 @@
 - 事件链三段：agent task --`agent_tx`--> 无句柄转发 task --`router_tx`--> 事件桥。`agent_rx` 归转发 task，runtime drop 不关闭通道；事件按 `session_id` 路由，未知 id 静默丢弃。
 - drop `JoinHandle` 不取消 tokio 任务；只有显式 `abort()` 才终止。子 Agent 跑在父任务同一棵 future 树里，abort 父任务即级联终止。
 - `shutdown()` 必须先拒绝未决审批（oneshot `send(false)`）再 abort：abort 会 drop agent 持有的 receiver，后发必失败。
-- `Completed`/`Failed`/`Cancelled`/`LocalCommandFinished` 终态复位 `busy`/`active_task`；非终态事件不得复位。取消仅作用于当前会话（HTTP 取消端点，原 TUI `Esc`）。
+- `Completed`/`Failed`/`Cancelled`/`LocalCommandFinished` 终态复位 `busy`/`active_task`；非终态事件不得复位。取消仅作用于当前会话（HTTP 取消端点）。
 - 后台总量硬上限 `runtime.max_background_sessions`（clamp 2..=64，默认 8）：超限优先 LRU 淘汰空闲项，全忙时关停最旧项；当前会话不计入。淘汰后切回走 `build_runtime` 从存储重建。
 - `/delete` 软删整个子树（含后代）并按返回 id 关停全部对应 runtime、拒绝其审批、清理跟踪表；删除最后一个会话时新建替代会话。
 - `refresh_sessions` 将 `child_status`/`child_batches`/`expanded_sessions` 收敛到存储中的活会话集合，吸收迟到事件造成的再污染。

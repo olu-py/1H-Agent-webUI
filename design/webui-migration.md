@@ -119,14 +119,22 @@
 - [x] undo/redo 文件回滚、export、diff 展示。
 
 ### 阶段 5：收尾清理
-- [ ] 删除 `src/home.rs`、`src/ui.rs`、`src/output.rs`、`src/input.rs`、
-- [ ] README 更新为 WebUI 使用说明；CI/release 流程适配（归档保留前端
-      资源目录）。Checklist 占位：CI 需增加 `web/` 目录 lint（node-less 检
-      查，如 HTML 校验与 JS 语法检查 `node --check` 仅作可选）。
-- [ ] README 与本项目指针：项目改名与仓库名（1H-Agent-webUI）已定，文档
+- [x] 删除 `src/home.rs`、`src/ui.rs`、`src/output.rs`、`src/ui_layout.rs`、
+      `src/ui_theme.rs`、`src/ui_view_model.rs`、`src/clipboard.rs`。
+      `src/input.rs` 保留：其 `InputBuffer` 是 UI 无关的输入缓冲区，WebUI
+      服务器（`app.input`）与 `submit_input` 仍在使用；TUI 渲染视图
+      （`InputViewport`/`input_viewport`/`input_cursor_viewport`）已删除。
+      `src/output.rs` 整体删除：`MessageLayout`/`OutputSelection`/`EdgeScroll`/
+      `CachedMarkdown` 及 `SessionRuntime` 上的布局/滚动/展开字段均为 TUI
+      残留，服务端与前端不读取；随依赖一起移除。
+- [x] README 更新为 WebUI 使用说明（浏览器访问、REST/SSE 契约、命令表、
+      非回环 token 鉴权、Provider 配置、集群模式）；发布归档无需额外前端
+      文件（rust-embed 内嵌）。
+- [x] README 与本项目指针：项目改名与仓库名（1H-Agent-webUI）已定，文档
       中旧名引用统一。
-- [ ] 完整验证矩阵：fmt、clippy -D warnings、全测试、release build、
-      `bash scripts/check-agent-docs.sh`。
+- [x] 完整验证矩阵：fmt、clippy -D warnings、全测试、release build、
+      `bash scripts/check-agent-docs.sh`。全部通过：186 lib + 3 集成测试、
+      clippy -D warnings 无告警、release 二进制内嵌前端冒烟通过。
 
 ## 风险与对策
 
@@ -160,3 +168,6 @@
 | 2.5 | 浏览器手工冒烟清单（见 webui.md） |
 | 3 | 同 2.5 + 删除 TUI 前后全测试 |
 | 4 | 完整矩阵：fmt + clippy -D warnings + 全测试 + release build + docs check |
+| 5 | 完整矩阵（TUI 依赖移除后）全过；浏览器冒烟：首页/新建会话、流式、
+      审批批准→工具执行、取消（Cancelled DTO 广播与前端同步）、/undo、
+      /redo、release 二进制内嵌前端可访问 |

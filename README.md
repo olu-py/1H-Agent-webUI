@@ -1,36 +1,37 @@
 # 1H-Agent
 
-`1H` 指氕（protium），即氢-1 同位素。1H-Agent 是面向 Linux、macOS 和 Windows 的轻量、权限感知终端 Agent：单 Rust 二进制、流式对话、工具审批与本地会话持久化。
+`1H` 指氕（protium），即氢-1 同位素。1H-Agent 是面向 Linux、macOS 和 Windows 的轻量、权限感知浏览器 Agent：单 Rust 二进制内嵌 HTTP 服务与前端页面，流式对话、工具审批、AI 集群与本地会话持久化全部由单个进程承担，无 Node.js 构建链、无 Python、无 Chromium。
 
 ## 获取与启动
 
-GitHub Releases 提供 Linux x86_64、Windows x86_64、macOS Intel 和 macOS Apple Silicon 的原生包，并附带 `SHA256SUMS.txt` 用于校验。
+GitHub Releases 提供 Linux x86_64、Windows x86_64、macOS Intel 和 macOS Apple Silicon 的原生包，并附带 `SHA256SUMS.txt` 用于校验。前端资源已内嵌进二进制，发布归档无需额外文件。
 
-Windows 解压后在 PowerShell 运行：
-
-```powershell
-.\1h-agent.exe --workspace C:\path\to\project
-```
-
-macOS 请按芯片选择 `macos-aarch64` 或 `macos-x86_64`，解压后运行：
+启动后默认监听回环地址，用浏览器打开输出中的地址即可：
 
 ```bash
 ./1h-agent --workspace /path/to/project
+# 1H-Agent WebUI listening on http://127.0.0.1:7788/
 ```
 
-当前 macOS 二进制未签名。若系统阻止首次运行，确认文件来源后可移除下载隔离属性：
+macOS 二进制未签名。若系统阻止首次运行，确认文件来源后可移除下载隔离属性：
 
 ```bash
 xattr -d com.apple.quarantine ./1h-agent
 ```
+
+常用命令行参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--workspace <dir>` | 工作目录，文件工具的活动范围（默认当前目录） |
+| `--port <n>` | WebUI 端口（覆盖 `server.port`，clamp 到 1024-65535） |
+| `--host <addr>` | 绑定地址（覆盖 `server.bind`）。默认仅回环 `127.0.0.1`；绑定非回环地址时强制启用 token 鉴权 |
 
 从源码开发运行：
 
 ```bash
 cargo run -- --workspace /path/to/project
 ```
-
-应用每次启动先进入轻量首页。直接输入首条消息并按 `Enter` 会创建新会话并进入主界面；按 `Tab` 可切换到最近会话列表，使用方向键和 `Enter` 恢复会话，也可以直接点击会话标题。首页不会预先创建空会话或加载历史消息。
 
 构建 release 二进制：
 
@@ -39,9 +40,28 @@ cargo build --release
 ./target/release/1h-agent --workspace /path/to/project
 ```
 
+## 浏览器界面
+
+首页列出可恢复的会话并允许新建；输入首条消息并回车即创建新会话，不会预先建立空会话。主界面包含消息流（流式文本、思考面板、工具卡片）、任务清单浮窗、模式/Provider/模型控件、命令输入框与审批弹层。实时事件经 SSE 推送；同一会话在多个标签页打开时共享同一条事件流，命令通过 REST 串行进入状态机。
+
+常用操作：
+
+| 操作 | 方式 |
+| --- | --- |
+| 新建 / 恢复会话 | 首页输入首条消息回车，或点击会话列表 |
+| 发送 / 换行 | 输入框回车 / `Shift+Enter` |
+| 切换模式 | `/plan` `/build` `/explore` `/cluster`，或点击模式标签 |
+| 命令 | 输入框以 `/` 开头，如 `/help` `/todo` `/undo` `/redo` `/diff` `/export` `/clear` `/rename <标题>` `/model <模型名>` |
+| 任务清单 | `/todo`、`/todo add <标题>`、`/todo doing\|done\|undo <序号>`、`/todo edit <序号> <标题>`、`/todo remove <序号>`、`/todo clear` |
+| 选择供应商 / 模型 | 点击界面中的供应商或模型控件，或 `/model <模型名>` |
+| 引用文件 / 执行命令 | `@path` / `!command`（命令须审批） |
+| 工具 / 审批 | 工具卡片显示状态与结果；危险操作弹出审批，可批准、拒绝或本会话放行 |
+| 取消 | 界面取消按钮或 `Esc`（仅取消当前会话的进行中请求） |
+| 文件操作 | 限定在 `--workspace` 内；写入、删除、命令、浏览器交互和变更型 Git 操作按策略要求审批 |
+
 ## 配置 Provider
 
-进入主界面后按 `Ctrl+S` 打开 Provider 设置。设置页列出已保存的供应商连接和当前连接；选择“添加供应商”后，可从尚未添加的 OpenAI、DeepSeek、Qwen/Bailian、火山方舟和自定义兼容模板中创建连接。每种模板只能添加一次，选择已有连接可编辑并切换，`Ctrl+D` 可移除连接。非密钥配置保存到 TOML；API Key 仍保存到系统钥匙串，移除连接不会删除密钥。应用打开时只解锁当前 Provider 的钥匙串条目一次；其他 Provider 在用户显式切换或编辑时按需解锁一次，随后均使用进程缓存，不会在 Agent 热路径重复请求授权。
+在界面中通过 Provider 控件添加或切换供应商。设置页列出已保存的连接；可从 OpenAI、DeepSeek、Qwen/Bailian、火山方舟和自定义兼容模板中创建。每种模板只能添加一次；非密钥配置保存到 TOML；API Key 只来自环境变量或系统钥匙串，不进入 TOML、数据库、日志或任何 HTTP 响应。
 
 | Provider | API Key 环境变量 | 默认模型 |
 | --- | --- | --- |
@@ -60,31 +80,9 @@ DeepSeek 的 Responses 模式默认启用 Provider 原生联网搜索。设置�
 native_web_search = "disabled"
 ```
 
-## 常用操作
-
-| 操作 | 快捷键/语法 |
-| --- | --- |
-| 首页开始 / 恢复会话 | 输入后 `Enter` / `Tab` 后用 `Up`、`Down`、`Enter` / 点击最近会话 |
-| 发送 / 换行 | `Enter` / `Shift+Enter` 或 `Ctrl+J` |
-| 新会话 / 切换会话 | `Ctrl+N` / `Alt+Up`、`Alt+Down` / 点击会话行（父会话点击展开/收起子会话） |
-| 切换模式 | 在命令面板选择“切换模式” / `/plan` `/build` `/explore` `/cluster` / 点击输入框标题的模式标签 |
-| 命令面板 / 命令 | `Ctrl+P` / `Ctrl+X` / `/` |
-| 任务清单 | 输出窗口右下角浮窗显示；`/todo`、`/todo add <标题>`、`/todo doing|done|undo <序号>`、`/todo edit <序号> <标题>`、`/todo remove <序号>`、`/todo clear`；点击状态符号循环切换，`▴`/`▾` 展开折叠，`×` 隐藏浮窗；全部完成后自动折叠 |
-| 选择供应商 / 模型 | 分别点击输入框下方的供应商或模型文字 / `/model <模型名>` |
-| 引用文件 / 执行命令 | `@path` / `!command`（命令须审批） |
-| 滚动 / 回到底部 | `PageUp`、`PageDown` / `Ctrl+L` |
-| 输出选择 / 复制 | 在任务输出区按住鼠标左键拖选，松开后自动复制 |
-| 粘贴 | 由终端环境决定（例如 `Cmd+V`、`Ctrl+Shift+V`） |
-| 工具详情 / 审批 | 鼠标点击工具摘要 / `Y`、`N` |
-| 取消 / 退出 | `Esc` / `Ctrl+C` |
-
-> `Alt+Up` / `Alt+Down` 依赖 kitty keyboard protocol，请使用支持该协议的终端（如 kitty、WezTerm、Alacritty、foot、iTerm2）。不支持的老终端（例如 macOS 自带 Terminal.app）可能无法区分 `Alt+方向键` 与裸方向键。
-
-文件操作限定在 `--workspace` 内；写入、删除、命令、浏览器交互和变更型 Git 操作会按策略要求审批。
-
 ## AI 集群模式
 
-切换到 `cluster` 模式（`/cluster` 或输入框模式标签）后，可在对话里用自然语言给不同角色指派不同模型，例如「用 deepseek-v4-pro 做计划与审批，用 deepseek-v4-flash 做实施」。主 Agent 会通过 `agent_spawn` 调度子 Agent 串行/并行执行，每个子 Agent 生成一个**树形子会话**（默认折叠，点击展开），父会话与当前会话在左侧面板高亮显示，子会话会显示运行中/等待审批等状态。子 Agent 返回 JSON 结果（`session_id`、`status`、`output`），写文件操作仍需用户审批；子 Agent 无终端权限，验证由主 Agent 完成。`agent_spawn` 还可通过 `provider` 指定其他 Provider、通过 `agent` 引用 `[[agents]]` 配置模板。
+切换到 `cluster` 模式（`/cluster` 或点击模式标签）后，可在对话里用自然语言给不同角色指派不同模型，例如「用 deepseek-v4-pro 做计划与审批，用 deepseek-v4-flash 做实施」。主 Agent 会通过 `agent_spawn` 调度子 Agent 串行/并行执行，每个子 Agent 生成一个**树形子会话**（默认折叠，点击展开），父会话与当前会话在会话列表高亮显示，子会话以批次面板展示运行中/等待审批等状态。子 Agent 返回 JSON 结果（`session_id`、`status`、`output`），写文件操作仍需用户审批；子 Agent 无终端权限，验证由主 Agent 完成。`agent_spawn` 还可通过 `provider` 指定其他 Provider、通过 `agent` 引用 `[[agents]]` 配置模板。
 
 ## AI 维护文档
 
