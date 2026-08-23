@@ -19,6 +19,18 @@ config.toml
 *.db-wal
 *.log
 
+# ts-rs default export directory (used when TS_RS_EXPORT_DIR is unset during
+# cargo test; the committed bindings live in web/ts/)
+/bindings/
+**/bindings/
+
+# Frontend build output
+/web/node_modules/
+/.pnpm-store/
+*.tsbuildinfo
+# web/dist/ is committed: the single Rust binary embeds it via rust-embed, so
+# `cargo build` works without a prior frontend build. CI rebuilds it fresh.
+
 # Packaging output
 /dist/
 *.deb

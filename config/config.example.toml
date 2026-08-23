@@ -42,8 +42,10 @@ context_meter = true
 # printed once at startup). Port is clamped to 1024..=65535.
 bind = "127.0.0.1"
 port = 7788
-# Per-session SSE replay ring size (clamped to 16..=4096).
+# Global SSE replay ring: max events (clamped to 16..=4096) and max total
+# bytes (clamped to 1 MiB..=16 MiB).
 # event_buffer = 512
+# event_max_bytes = 4194304
 # Pending approvals auto-reject after this many seconds (clamped to 10..=3600).
 # approval_timeout_seconds = 300
 

@@ -9,7 +9,7 @@ Provider 档案、设置、密钥、请求协议、reasoning、`response_id`、�
 - 配置：`ProviderConfig`、`ProviderPreset`、`provider_for`、`upsert_provider`、`remove_provider`。
 - 启动选择：`HomeSelection`、`apply_home_selection`（迁移期沿用，WebUI 首页复刻同语义，见 design/webui-migration.md）。
 - 密钥/设置：`api_key_cached*`、`store_api_key_cached`、连接列表与模板表单。
-- 请求/恢复：`replay_safe_items`、请求游标、`provider/openai.rs`、`storage.rs` 的 Provider 状态。
+- 请求/恢复：`replay_safe_items`、请求游标、`crates/protium-core/src/provider/openai.rs`、`crates/protium-core/src/storage.rs` 的 Provider 状态。
 
 ## 不变量
 

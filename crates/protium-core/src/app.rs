@@ -1269,6 +1269,15 @@ impl App {
             self.background.get_mut(session_id)
         }
     }
+
+    /// Immutable access to a runtime by id (current or background).
+    pub(crate) fn runtime(&self, session_id: &str) -> Option<&SessionRuntime> {
+        if session_id == self.active_session {
+            Some(&self.current)
+        } else {
+            self.background.get(session_id)
+        }
+    }
 }
 
 #[cfg(test)]

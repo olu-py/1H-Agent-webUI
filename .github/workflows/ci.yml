@@ -13,6 +13,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  frontend:
+    name: Frontend (web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+      - name: TypeScript typecheck
+        working-directory: web
+        run: pnpm typecheck
+      - name: Unit tests
+        working-directory: web
+        run: pnpm test
+      - name: Build bundle (embeds into the Rust binary)
+        working-directory: web
+        run: pnpm build
+      - name: Verify committed dist is current
+        run: git diff --exit-code -- web/dist
+
   quality:
     name: Linux quality
     runs-on: ubuntu-latest
@@ -33,7 +61,11 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features --locked -- -D warnings
       - name: Tests
-        run: cargo test --all-features --locked
+        run: cargo test --quiet --all-features --locked
+      - name: TS bindings drift check
+        run: |
+          TS_RS_EXPORT_DIR="web/ts" cargo run -q -p protium-core --bin protium-tsgen
+          git diff --exit-code -- web/ts
       - name: Release build
         run: cargo build --release --locked
 
@@ -49,4 +81,4 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Tests
-        run: cargo test --all-features --locked
+        run: cargo test --quiet --all-features --locked

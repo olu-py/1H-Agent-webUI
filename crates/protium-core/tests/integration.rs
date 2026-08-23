@@ -1,6 +1,6 @@
 use std::{process::Command, sync::Arc};
 
-use protium_agent::{
+use protium_core::{
     config::RuntimeConfig,
     provider::ToolCall,
     security::{PolicyDecision, Workspace},

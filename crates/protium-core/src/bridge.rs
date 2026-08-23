@@ -1,238 +1,333 @@
-//! Event bridge: consumes the shared `router_rx` event stream and rebroadcasts
-//! it to SSE clients.
+//! Event bridge: the global bounded replay ring for UI events.
 //!
-//! The bridge maintains a monotonic per-session sequence number and a bounded
-//! replay ring so a reconnecting browser can resume from `Last-Event-ID`
-//! without the server replaying events the client has already consumed (the
-//! provider retry invariant "a broken stream is not retried" is preserved —
-//! the server never replays a fully-consumed event more than once).
+//! Every routed agent event is converted to a [`protocol::Event`], wrapped in
+//! an [`Envelope`] with a process-global monotonic cursor, and both appended to
+//! a bounded in-memory ring and broadcast live. Consumers subscribe from a
+//! known cursor: events after it are replayed from the ring (stored as
+//! `Arc<Envelope>` to avoid copying large strings), then the live broadcast
+//! takes over. When a requested cursor has been evicted from the ring, the
+//! consumer is told to `resync` — refetch the snapshot and message page rather
+//! than guess the missing state.
+//!
+//! Both limits (event count and total bytes) are configurable and clamped; a
+//! slow consumer that lags the broadcast channel is detected and told to
+//! resync rather than dropping events silently.
 
 use std::{
-    collections::{HashMap, VecDeque},
-    sync::{Arc, RwLock},
+    collections::VecDeque,
+    sync::{
+        Arc, RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use tokio::sync::broadcast;
 
-use super::dto::{self, EventDto};
+use crate::protocol::{Envelope, Event};
 
-/// A single SSE-deliverable event with its per-session sequence number.
+/// Result of a replay request from a cursor.
 #[derive(Clone, Debug)]
-pub struct BridgeEvent {
-    pub session_id: String,
-    pub seq: u64,
-    pub dto: EventDto,
+pub enum ReplayResult {
+    /// Buffered events strictly after the requested cursor, oldest first.
+    Replay(Vec<Arc<Envelope>>),
+    /// The requested cursor was evicted; the consumer must resync.
+    ResyncRequired,
 }
 
-/// How many past events per session the replay ring keeps. Bounded so a
-/// long-idle browser never grows the server's memory without limit. The
-/// config `server.event_buffer` clamps the ring on construction.
-struct SessionLog {
-    next_seq: u64,
-    ring: VecDeque<BridgeEvent>,
-    capacity: usize,
+/// Default maximum number of events retained in the ring.
+pub const DEFAULT_MAX_EVENTS: usize = 512;
+/// Default maximum total bytes retained in the ring.
+pub const DEFAULT_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+/// Bounds applied to the ring capacity on construction.
+pub const MIN_MAX_EVENTS: usize = 16;
+pub const MAX_MAX_EVENTS: usize = 4096;
+pub const MIN_MAX_BYTES: usize = 1024 * 1024;
+pub const MAX_MAX_BYTES: usize = 16 * 1024 * 1024;
+
+struct Ring {
+    events: VecDeque<Arc<Envelope>>,
+    bytes: usize,
 }
 
-impl SessionLog {
-    fn new(capacity: usize) -> Self {
+impl Ring {
+    fn new() -> Self {
         Self {
-            next_seq: 0,
-            ring: VecDeque::new(),
-            capacity,
+            events: VecDeque::new(),
+            bytes: 0,
         }
-    }
-
-    fn push(&mut self, event: BridgeEvent) {
-        self.next_seq += 1;
-        if self.ring.len() >= self.capacity {
-            self.ring.pop_front();
-        }
-        self.ring.push_back(event);
-    }
-
-    /// Returns events after `after_seq` in order, up to the ring capacity.
-    fn events_after(&self, after_seq: u64) -> Vec<BridgeEvent> {
-        self.ring
-            .iter()
-            .filter(|event| event.seq > after_seq)
-            .cloned()
-            .collect()
     }
 }
 
-/// Shared event fan-out. A single state-machine task calls [`EventBridge::push`]
-/// for every routed event; SSE handlers subscribe to the broadcast channel and
-/// can request a replay from a known sequence.
+fn string_bytes(value: &str) -> usize {
+    value.len()
+}
+
+fn tool_call_bytes(call: &crate::provider::ToolCall) -> usize {
+    call.id.len() + call.name.len() + call.arguments.to_string().len() + 32
+}
+
+fn event_payload_bytes(event: &Event) -> usize {
+    use crate::protocol::Event as E;
+    match event {
+        E::ReasoningDelta { delta } => string_bytes(delta),
+        E::ProviderRetry {
+            reason, delay_ms, ..
+        } => string_bytes(reason) + 16 + (*delay_ms as usize / 16),
+        E::ModelStreaming => 0,
+        E::WebSearchStarted { query } => string_bytes(query),
+        E::WebSearchResult {
+            title,
+            url,
+            snippet,
+        } => string_bytes(title) + string_bytes(url) + string_bytes(snippet),
+        E::WebSearchCompleted { .. } => 8,
+        E::Cancelled { reason } => string_bytes(reason),
+        E::TextDelta { delta } => string_bytes(delta),
+        E::Approval {
+            call,
+            reason,
+            source_session_id,
+            source_title,
+            ..
+        } => {
+            tool_call_bytes(call)
+                + string_bytes(reason)
+                + source_session_id.as_ref().map_or(0, String::len)
+                + source_title.as_ref().map_or(0, String::len)
+        }
+        E::ApprovalResolved { .. } => 24,
+        E::ToolStarted { call } => tool_call_bytes(call),
+        E::ToolFinished { call, result } => tool_call_bytes(call) + string_bytes(result),
+        E::Usage { .. } => 24,
+        E::Completed => 0,
+        E::Failed { error } => string_bytes(error),
+        E::SessionsChanged => 0,
+        E::ChildSessionProgress {
+            child_session_id,
+            status,
+            tool,
+            ..
+        } => {
+            string_bytes(child_session_id)
+                + string_bytes(status)
+                + tool.as_ref().map_or(0, String::len)
+        }
+        E::LocalCommandFinished { command, result } => string_bytes(command) + string_bytes(result),
+        E::CompactionStarted => 0,
+        E::CompactionCompleted { .. } => 8,
+        E::CompactionFailed { error } => string_bytes(error),
+        E::TodoUpdated { tasks } => tasks
+            .iter()
+            .map(|task| {
+                task.id.len() + task.title.len() + task.created_at.len() + task.updated_at.len()
+            })
+            .sum(),
+        E::TranscriptInvalidated => 0,
+        E::ResyncRequired => 0,
+    }
+}
+
+fn envelope_bytes(envelope: &Envelope) -> usize {
+    // A cheap upper bound: cursor + session_id + serialized payload length.
+    envelope.session_id.len() + 16 + event_payload_bytes(&envelope.event)
+}
+
+/// Shared event fan-out with a global replay ring.
 ///
 /// All methods are synchronous: `push` only touches an in-memory ring and a
 /// broadcast channel, so the state-machine task never blocks on I/O.
 #[derive(Clone)]
 pub struct EventBridge {
-    tx: broadcast::Sender<BridgeEvent>,
-    logs: Arc<RwLock<HashMap<String, SessionLog>>>,
-    capacity: usize,
+    tx: broadcast::Sender<Arc<Envelope>>,
+    ring: Arc<RwLock<Ring>>,
+    next_cursor: Arc<AtomicU64>,
+    max_events: usize,
+    max_bytes: usize,
 }
 
 impl EventBridge {
-    pub fn new(capacity: usize) -> Self {
-        let capacity = capacity.clamp(16, 4096);
+    pub fn new(max_events: usize, max_bytes: usize) -> Self {
+        let max_events = max_events.clamp(MIN_MAX_EVENTS, MAX_MAX_EVENTS);
+        let max_bytes = max_bytes.clamp(MIN_MAX_BYTES, MAX_MAX_BYTES);
         let (tx, _) = broadcast::channel(256);
         Self {
             tx,
-            logs: Arc::new(RwLock::new(HashMap::new())),
-            capacity,
+            ring: Arc::new(RwLock::new(Ring::new())),
+            next_cursor: Arc::new(AtomicU64::new(0)),
+            max_events,
+            max_bytes,
         }
     }
 
-    /// Registers an event for a session: assigns the next per-session sequence,
-    /// appends it to the replay ring, and broadcasts it live.
-    pub fn push(&self, session_id: &str, event: EventDto) {
-        let bridge_event = {
-            let mut logs = self
-                .logs
+    /// Registers an event: assigns the next process-global cursor, appends it to
+    /// the replay ring (evicting the oldest entry when a limit is exceeded), and
+    /// broadcasts it live. Returns the envelope so callers can reuse it.
+    pub fn push(&self, session_id: String, event: Event) -> Arc<Envelope> {
+        let cursor = self.next_cursor.fetch_add(1, Ordering::SeqCst);
+        let envelope = Arc::new(Envelope {
+            cursor,
+            session_id,
+            event,
+        });
+        {
+            let mut ring = self
+                .ring
                 .write()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let log = logs
-                .entry(session_id.to_owned())
-                .or_insert_with(|| SessionLog::new(self.capacity));
-            let seq = log.next_seq;
-            let bridge_event = BridgeEvent {
-                session_id: session_id.to_owned(),
-                seq,
-                dto: event,
-            };
-            log.push(bridge_event.clone());
-            bridge_event
-        };
-        // Receivers that lag the channel fall back to the replay ring on
-        // reconnect.
-        let _ = self.tx.send(bridge_event);
-    }
-
-    /// Replays buffered events after `after_seq`. When `session_id` is `Some`,
-    /// only that session's ring is consulted; otherwise a best-effort global
-    /// merge (per-session sequences are not globally ordered, so a multi-session
-    /// replay may interleave; the frontend normally subscribes per session).
-    pub fn replay(&self, session_id: Option<&str>, after_seq: u64) -> Vec<BridgeEvent> {
-        let logs = self
-            .logs
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        match session_id {
-            Some(id) => logs
-                .get(id)
-                .map(|log| log.events_after(after_seq))
-                .unwrap_or_default(),
-            None => logs
-                .values()
-                .flat_map(|log| log.events_after(after_seq))
-                .collect(),
+            ring.bytes = ring.bytes.saturating_add(envelope_bytes(&envelope));
+            ring.events.push_back(envelope.clone());
+            while ring.events.len() > self.max_events || ring.bytes > self.max_bytes {
+                let Some(oldest) = ring.events.pop_front() else {
+                    break;
+                };
+                ring.bytes = ring.bytes.saturating_sub(envelope_bytes(&oldest));
+            }
         }
+        // Receivers that lag the channel fall back to the ring on reconnect.
+        let _ = self.tx.send(envelope.clone());
+        envelope
     }
 
-    /// Current next sequence for a session (used to bootstrap a fresh SSE
-    /// connection's resume semantics on first subscribe).
-    pub fn next_seq(&self, session_id: &str) -> u64 {
-        let logs = self
-            .logs
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        logs.get(session_id)
-            .map(|log| log.next_seq)
-            .unwrap_or_default()
+    /// The next cursor value to be assigned (i.e., the number of events pushed
+    /// so far). Snapshot responses return this as `event_cursor` so a fresh
+    /// consumer subscribes from exactly here.
+    pub fn current_cursor(&self) -> u64 {
+        self.next_cursor.load(Ordering::SeqCst)
     }
 
-    /// Subscribes to live events.
-    pub fn subscribe(&self) -> broadcast::Receiver<BridgeEvent> {
+    /// Subscribes to live events. The consumer must also call
+    /// [`Self::replay_after`] *before* subscribing (replay first, then live) so
+    /// events pushed between the two calls are never missed or duplicated.
+    pub fn subscribe(&self) -> broadcast::Receiver<Arc<Envelope>> {
         self.tx.subscribe()
     }
 
-    /// The maximum number of events retained per session.
-    pub fn capacity(&self) -> usize {
-        self.capacity
+    /// Returns the buffered events strictly after `after`, oldest first.
+    /// Returns [`ReplayResult::ResyncRequired`] when `after` is older than the
+    /// oldest retained event (or predates every retained event), meaning the
+    /// consumer must refetch snapshot + message page.
+    pub fn replay_after(&self, after: u64) -> ReplayResult {
+        let ring = self
+            .ring
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(oldest) = ring.events.front() else {
+            if after < self.current_cursor() {
+                return ReplayResult::ResyncRequired;
+            }
+            return ReplayResult::Replay(Vec::new());
+        };
+        if after < oldest.cursor {
+            return ReplayResult::ResyncRequired;
+        }
+        ReplayResult::Replay(
+            ring.events
+                .iter()
+                .filter(|envelope| envelope.cursor > after)
+                .cloned()
+                .collect(),
+        )
     }
-}
 
-/// Converts a routed agent event into its DTO shape, attaching the server-side
-/// approval id when the event is an approval.
-pub fn routed_to_dto(
-    session_id: &str,
-    event: &crate::agent::AgentEvent,
-    approval: Option<&super::dto::ApprovalInfo>,
-) -> Option<EventDto> {
-    dto::to_dto(session_id, event, approval)
+    /// The configured ring capacity (clamped).
+    pub fn max_events(&self) -> usize {
+        self.max_events
+    }
+
+    /// The configured ring byte cap (clamped).
+    pub fn max_bytes(&self) -> usize {
+        self.max_bytes
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::ToolCall;
+    use crate::protocol::Event;
 
-    #[tokio::test]
-    async fn sequences_are_monotonic_per_session_and_ring_is_bounded() {
-        let bridge = EventBridge::new(16);
-        for i in 0..20 {
-            bridge.push(
-                "a",
-                EventDto::TextDelta {
-                    session_id: "a".into(),
-                    delta: format!("{i}"),
-                },
-            );
+    fn text(delta: &str) -> Event {
+        Event::TextDelta {
+            delta: delta.into(),
         }
-        bridge.push(
-            "b",
-            EventDto::TextDelta {
-                session_id: "b".into(),
-                delta: "first-b".into(),
-            },
-        );
-
-        assert_eq!(bridge.next_seq("a"), 20);
-        assert_eq!(bridge.next_seq("b"), 1);
-
-        // Replay only keeps the last 16 for session a.
-        let replay = bridge.replay(Some("a"), 0);
-        assert_eq!(replay.len(), 16);
-        assert_eq!(replay.first().unwrap().seq, 4);
-        assert_eq!(replay.last().unwrap().seq, 19);
-
-        // Replay after a specific seq returns the tail.
-        let tail = bridge.replay(Some("a"), 18);
-        assert_eq!(tail.len(), 1);
-        assert_eq!(tail[0].seq, 19);
     }
 
-    #[tokio::test]
-    async fn dto_conversion_carries_approval_id() {
-        let (tx, _answer) = tokio::sync::oneshot::channel();
-        let event = crate::agent::AgentEvent::Approval {
-            call: ToolCall {
-                id: "c".into(),
-                name: "file_write".into(),
-                arguments: serde_json::json!({}),
-            },
-            reason: "writes".into(),
-            source_session_id: None,
-            source_title: None,
-            reply: tx,
-        };
-        let approval = crate::server::dto::ApprovalInfo {
-            approval_id: "ap_xyz".into(),
-            call: ToolCall {
-                id: "c".into(),
-                name: "file_write".into(),
-                arguments: serde_json::json!({}),
-            },
-            reason: "writes".into(),
-            source_session_id: None,
-            source_title: None,
-        };
-        let dto = routed_to_dto("s", &event, Some(&approval)).unwrap();
-        let json = serde_json::to_value(dto).unwrap();
-        assert_eq!(json["type"], "approval");
-        assert_eq!(json["approval_id"], "ap_xyz");
-        assert_eq!(json["session_id"], "s");
-        drop(_answer);
+    #[test]
+    fn cursors_are_global_and_monotonic() {
+        let bridge = EventBridge::new(64, DEFAULT_MAX_BYTES);
+        assert_eq!(bridge.current_cursor(), 0);
+        for i in 0..10 {
+            bridge.push("a".into(), text(&format!("{i}")));
+            assert_eq!(bridge.current_cursor(), i + 1);
+        }
+        bridge.push("b".into(), text("b"));
+        assert_eq!(bridge.current_cursor(), 11);
+    }
+
+    #[test]
+    fn replay_after_returns_only_newer_events_in_order() {
+        let bridge = EventBridge::new(64, DEFAULT_MAX_BYTES);
+        for i in 0..10 {
+            bridge.push("a".into(), text(&format!("{i}")));
+        }
+        match bridge.replay_after(3) {
+            ReplayResult::Replay(events) => {
+                assert_eq!(events.len(), 6);
+                assert_eq!(events[0].cursor, 4);
+                assert_eq!(events[5].cursor, 9);
+            }
+            ReplayResult::ResyncRequired => panic!("cursor 3 must still be buffered"),
+        }
+    }
+
+    #[test]
+    fn evicted_cursor_requires_resync() {
+        let bridge = EventBridge::new(16, DEFAULT_MAX_BYTES);
+        for i in 0..32 {
+            bridge.push("a".into(), text(&format!("{i}")));
+        }
+        // The ring only keeps the last 16 (cursors 16..=31); 15 is evicted.
+        assert!(matches!(
+            bridge.replay_after(15),
+            ReplayResult::ResyncRequired
+        ));
+        // The oldest retained cursor replays the tail without resync.
+        match bridge.replay_after(16) {
+            ReplayResult::Replay(events) => assert_eq!(events.len(), 15),
+            ReplayResult::ResyncRequired => panic!("cursor 16 must still be buffered"),
+        }
+    }
+
+    #[test]
+    fn byte_cap_evicts_largest_payloads_first_in_fifo_order() {
+        // Small byte cap forces eviction even with a large event budget.
+        let bridge = EventBridge::new(256, 2 * 1024 * 1024);
+        let big = "x".repeat(4 * 1024 * 1024);
+        bridge.push("a".into(), text(&big));
+        // The single event exceeds the byte cap, so the ring must evict it.
+        assert!(matches!(
+            bridge.replay_after(0),
+            ReplayResult::ResyncRequired
+        ));
+    }
+
+    #[test]
+    fn empty_ring_replays_nothing_without_resync_when_up_to_date() {
+        let bridge = EventBridge::new(16, DEFAULT_MAX_BYTES);
+        match bridge.replay_after(0) {
+            ReplayResult::Replay(events) => assert!(events.is_empty()),
+            ReplayResult::ResyncRequired => panic!("nothing was pushed, nothing was evicted"),
+        }
+    }
+
+    #[test]
+    fn live_broadcast_carries_arc_envelopes() {
+        let bridge = EventBridge::new(64, DEFAULT_MAX_BYTES);
+        let mut receiver = bridge.subscribe();
+        let pushed = bridge.push("s".into(), text("hi"));
+        let received = receiver.try_recv().expect("live event");
+        assert_eq!(received.cursor, pushed.cursor);
+        assert_eq!(received.session_id, "s");
+        assert!(Arc::ptr_eq(&received, &pushed));
     }
 }

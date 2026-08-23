@@ -1,0 +1,46 @@
+[package]
+name = "protium-web"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+authors.workspace = true
+license-file.workspace = true
+
+[[bin]]
+name = "1h-agent-web"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+async-stream = { workspace = true }
+axum = { workspace = true }
+clap = { workspace = true }
+futures-util = { workspace = true }
+mime_guess = { workspace = true }
+rand = { workspace = true }
+rust-embed = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+protium-core = { path = "../protium-core" }
+
+[dev-dependencies]
+tempfile = "3"
+
+[package.metadata.deb]
+name = "1h-agent-web"
+maintainer = "1H-Agent contributors"
+section = "utils"
+priority = "optional"
+assets = [
+  ["target/release/1h-agent-web", "usr/bin/", "755"],
+  ["README.md", "usr/share/doc/1h-agent-web/README.md", "644"],
+  ["THIRD_PARTY_NOTICES.md", "usr/share/doc/1h-agent-web/THIRD_PARTY_NOTICES.md", "644"],
+  ["config/config.example.toml", "usr/share/doc/1h-agent-web/config.example.toml", "644"],
+]
+
+[package.metadata.wix]
+eula = false

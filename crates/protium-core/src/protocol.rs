@@ -1,73 +1,129 @@
-//! Web-facing event DTOs.
+//! v2 UI wire protocol: stable DTOs shared by every interface.
 //!
-//! `AgentEvent` carries non-serializable payloads (notably the
-//! `oneshot::Sender<bool>` on `Approval`), so the server converts it into this
-//! serde-tagged shape before broadcasting over SSE. The approval sender never
-//! leaves the server: it is replaced by an `approval_id` that the frontend
-//! sends back to `POST /api/approvals/:id`, and the sender is stored in the
-//! server pending-approval table instead.
+//! This module is the single authority for the UI contract. The [`Event`]
+//! tagged union, [`AppSnapshotV2`], [`MessageDto`], [`MessagePage`] and
+//! [`Envelope`] shapes are the stable wire types consumed by Web, TUI and
+//! Desktop. `ts-rs` derives keep the generated TypeScript bindings in sync;
+//! CI regenerates them and fails on drift (see the `protium-tsgen` binary).
+//!
+//! 对外契约，加法演进 (external contract, additive evolution): the `type`/`kind`
+//! discriminator sets and field shapes are authoritative. New variants/fields
+//! must be ignorable by older UIs; do not rename, reorder, or reuse an old tag
+//! with a different payload without bumping [`PROTOCOL_VERSION`].
 
 use serde::Serialize;
+use serde_json::Value;
+use ts_rs::TS;
 
-use crate::{agent::AgentEvent, model::TodoTask, provider::ToolCall};
+use crate::{model::TodoTask, provider::ToolCall};
 
-/// Current version of the browser-facing wire protocol (REST + SSE DTOs).
-/// Additive-only: new `EventDto` types and new fields must be ignorable by
-/// older UIs. Breaking changes (renames, repurposed types) must bump this and
-/// the matching version in the frontend boot check.
-pub const PROTOCOL_VERSION: u32 = 1;
+/// Current version of the UI wire protocol (REST + SSE DTOs).
+pub const PROTOCOL_VERSION: u32 = 2;
 
-/// One agent event, serialized for the browser. The `type` field is the event
-/// discriminator; the event's owning `session_id` is always included so a
-/// single global SSE stream can be routed client-side.
-///
-/// 对外契约，加法演进 (external contract, additive evolution): the `type` set
-/// and field shapes are the authoritative wire contract referenced by
-/// .agents/guides/ui-contract.md. New variants/fields must be ignorable by
-/// older UIs; do not rename, reorder, or reuse an old `type` with a different
-/// payload without bumping [`PROTOCOL_VERSION`].
-#[derive(Clone, Debug, Serialize)]
+/// Machine-readable error kind for the v2 API. [`ApiErrorKind::ResyncRequired`]
+/// signals that a consumer's event cursor has been evicted from the bridge ring
+/// and it must refetch the snapshot and the current message page instead of
+/// guessing the missing state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiErrorKind {
+    BadRequest,
+    NotFound,
+    Unauthorized,
+    Conflict,
+    Internal,
+    ResyncRequired,
+}
+
+/// A structured v2 API error. Serialized as `{ "kind", "message" }`.
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct ApiError {
+    pub kind: ApiErrorKind,
+    pub message: String,
+}
+
+impl ApiError {
+    pub fn bad_request(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::BadRequest,
+            message: message.into(),
+        }
+    }
+
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::NotFound,
+            message: message.into(),
+        }
+    }
+
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::Unauthorized,
+            message: message.into(),
+        }
+    }
+
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::Conflict,
+            message: message.into(),
+        }
+    }
+
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::Internal,
+            message: message.into(),
+        }
+    }
+
+    pub fn resync_required() -> Self {
+        Self {
+            kind: ApiErrorKind::ResyncRequired,
+            message: "event cursor was evicted; refetch the snapshot and message page".into(),
+        }
+    }
+}
+
+/// One event payload delivered by the bridge. The `type` field is the
+/// discriminator; the owning `session_id` and the process-global `cursor` live
+/// on the [`Envelope`] wrapper.
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum EventDto {
+pub enum Event {
     ReasoningDelta {
-        session_id: String,
         delta: String,
     },
     ProviderRetry {
-        session_id: String,
         attempt: u32,
         reason: String,
         delay_ms: u64,
     },
-    ModelStreaming {
-        session_id: String,
-    },
+    ModelStreaming,
     WebSearchStarted {
-        session_id: String,
         query: String,
     },
     WebSearchResult {
-        session_id: String,
         title: String,
         url: String,
         snippet: String,
     },
     WebSearchCompleted {
-        session_id: String,
         count: usize,
     },
     Cancelled {
-        session_id: String,
         reason: String,
     },
     TextDelta {
-        session_id: String,
         delta: String,
     },
-    /// The agent is waiting for a tool approval. `approval_id` is the token
-    /// the frontend must echo back to `POST /api/approvals/:id`.
+    /// The agent is waiting for a tool approval. `approval_id` is the token the
+    /// frontend must echo back to `POST /api/v2/approvals/:id`.
     Approval {
-        session_id: String,
         approval_id: String,
         call: ToolCall,
         reason: String,
@@ -77,37 +133,27 @@ pub enum EventDto {
     /// A previously broadcast approval was decided (by the user or by the
     /// server-side timeout). The frontend closes its modal on this.
     ApprovalResolved {
-        session_id: String,
         approval_id: String,
         approved: bool,
     },
     ToolStarted {
-        session_id: String,
         call: ToolCall,
     },
     ToolFinished {
-        session_id: String,
         call: ToolCall,
         result: String,
     },
     Usage {
-        session_id: String,
         input_tokens: u64,
         output_tokens: u64,
         total_tokens: u64,
     },
-    Completed {
-        session_id: String,
-    },
+    Completed,
     Failed {
-        session_id: String,
         error: String,
     },
-    SessionsChanged {
-        session_id: String,
-    },
+    SessionsChanged,
     ChildSessionProgress {
-        session_id: String,
         child_session_id: String,
         status: String,
         turn: usize,
@@ -115,161 +161,44 @@ pub enum EventDto {
         tool: Option<String>,
     },
     LocalCommandFinished {
-        session_id: String,
         command: String,
         result: String,
     },
-    CompactionStarted {
-        session_id: String,
-    },
+    CompactionStarted,
     CompactionCompleted {
-        session_id: String,
         hidden: usize,
     },
     CompactionFailed {
-        session_id: String,
         error: String,
     },
     TodoUpdated {
-        session_id: String,
         tasks: Vec<TodoTask>,
     },
+    /// A history-modifying command (undo, redo, compact, fork, delete, rename,
+    /// new session) changed the stored transcript. The consumer must drop its
+    /// cached message pages and refetch from the newest page. Replaces the v1
+    /// frontend's fixed-delay refresh.
+    TranscriptInvalidated,
+    /// Transport-level signal: the consumer's event cursor was evicted from the
+    /// bridge ring (or the consumer lagged the live channel). The consumer must
+    /// refetch the snapshot and the current message page instead of guessing
+    /// the missing state. `session_id` is empty on this envelope.
+    ResyncRequired,
 }
 
-/// The pieces of an `AgentEvent::Approval` that can cross the wire. The
-/// `oneshot::Sender<bool>` is deliberately absent; the server keeps it in its
-/// pending-approval table keyed by `approval_id`.
-#[derive(Clone, Debug)]
-pub struct ApprovalInfo {
-    pub approval_id: String,
-    pub call: ToolCall,
-    pub reason: String,
-    pub source_session_id: Option<String>,
-    pub source_title: Option<String>,
+/// A single bridge-delivered event with its process-global monotonic cursor.
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct Envelope {
+    pub cursor: u64,
+    pub session_id: String,
+    #[serde(flatten)]
+    pub event: Event,
 }
 
-/// Converts an agent event into its web shape.
-///
-/// `approval` must be `Some` exactly when `event` is `AgentEvent::Approval`;
-/// the sender inside the event cannot be serialized, so the bridge supplies the
-/// id and keeps the sender itself.
-pub fn to_dto(
-    session_id: &str,
-    event: &AgentEvent,
-    approval: Option<&ApprovalInfo>,
-) -> Option<EventDto> {
-    let session_id = session_id.to_owned();
-    Some(match event {
-        AgentEvent::ReasoningDelta(delta) => EventDto::ReasoningDelta {
-            session_id,
-            delta: delta.clone(),
-        },
-        AgentEvent::ProviderRetry {
-            attempt,
-            reason,
-            delay_ms,
-        } => EventDto::ProviderRetry {
-            session_id,
-            attempt: *attempt,
-            reason: reason.clone(),
-            delay_ms: *delay_ms,
-        },
-        AgentEvent::ModelStreaming => EventDto::ModelStreaming { session_id },
-        AgentEvent::WebSearchStarted { query } => EventDto::WebSearchStarted {
-            session_id,
-            query: query.clone(),
-        },
-        AgentEvent::WebSearchResult {
-            title,
-            url,
-            snippet,
-        } => EventDto::WebSearchResult {
-            session_id,
-            title: title.clone(),
-            url: url.clone(),
-            snippet: snippet.clone(),
-        },
-        AgentEvent::WebSearchCompleted { count } => EventDto::WebSearchCompleted {
-            session_id,
-            count: *count,
-        },
-        AgentEvent::Cancelled(reason) => EventDto::Cancelled {
-            session_id,
-            reason: reason.clone(),
-        },
-        AgentEvent::TextDelta(delta) => EventDto::TextDelta {
-            session_id,
-            delta: delta.clone(),
-        },
-        AgentEvent::Approval { .. } => {
-            // Without a server-side approval id there is nothing the frontend
-            // can act on, so the event is dropped rather than delivered with a
-            // dangling id.
-            let approval = approval?;
-            EventDto::Approval {
-                session_id,
-                approval_id: approval.approval_id.clone(),
-                call: approval.call.clone(),
-                reason: approval.reason.clone(),
-                source_session_id: approval.source_session_id.clone(),
-                source_title: approval.source_title.clone(),
-            }
-        }
-        AgentEvent::ToolStarted(call) => EventDto::ToolStarted {
-            session_id,
-            call: call.clone(),
-        },
-        AgentEvent::ToolFinished { call, result } => EventDto::ToolFinished {
-            session_id,
-            call: call.clone(),
-            result: result.clone(),
-        },
-        AgentEvent::Usage(usage) => EventDto::Usage {
-            session_id,
-            input_tokens: usage.input_tokens,
-            output_tokens: usage.output_tokens,
-            total_tokens: usage.total_tokens,
-        },
-        AgentEvent::Completed { .. } => EventDto::Completed { session_id },
-        AgentEvent::Failed(error) => EventDto::Failed {
-            session_id,
-            error: error.clone(),
-        },
-        AgentEvent::SessionsChanged => EventDto::SessionsChanged { session_id },
-        AgentEvent::ChildSessionProgress {
-            session_id: child_id,
-            progress,
-        } => EventDto::ChildSessionProgress {
-            session_id,
-            child_session_id: child_id.clone(),
-            status: progress.status.wire_name().to_owned(),
-            turn: progress.turn,
-            max_turns: progress.max_turns,
-            tool: progress.tool.clone(),
-        },
-        AgentEvent::LocalCommandFinished { command, result } => EventDto::LocalCommandFinished {
-            session_id,
-            command: command.clone(),
-            result: result.clone(),
-        },
-        AgentEvent::CompactionStarted => EventDto::CompactionStarted { session_id },
-        AgentEvent::CompactionCompleted { hidden } => EventDto::CompactionCompleted {
-            session_id,
-            hidden: *hidden,
-        },
-        AgentEvent::CompactionFailed(error) => EventDto::CompactionFailed {
-            session_id,
-            error: error.clone(),
-        },
-        AgentEvent::TodoUpdated { tasks } => EventDto::TodoUpdated {
-            session_id,
-            tasks: tasks.clone(),
-        },
-    })
-}
-
-/// Serialized form of a session used by `GET /api/state`.
-#[derive(Clone, Debug, Serialize)]
+/// Serialized form of a session used by [`AppSnapshotV2`].
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
 pub struct SessionStateDto {
     pub id: String,
     pub title: String,
@@ -279,28 +208,10 @@ pub struct SessionStateDto {
     pub status: String,
 }
 
-/// Serialized form of the whole application state used by `GET /api/state`.
-///
-/// 对外契约，加法演进 (external contract, additive evolution): `protocol_version`
-/// lets a frontend reject an incompatible server instead of misreading state.
-/// New fields must be additive and ignorable by older UIs.
-#[derive(Clone, Debug, Serialize)]
-pub struct AppStateDto {
-    /// Wire protocol version; the frontend boot check compares against its own.
-    pub protocol_version: u32,
-    pub active_session: Option<String>,
-    pub sessions: Vec<SessionStateDto>,
-    pub provider: String,
-    pub model: String,
-    pub mode: String,
-    /// Serialized pending approval of the oldest waiting session, if any.
-    pub approval: Option<ApprovalDto>,
-    pub todos: Vec<TodoDto>,
-}
-
 /// A pending approval exposed to the frontend. `approval_id` is echoed back on
-/// decision; the server-side sender is never serialized.
-#[derive(Clone, Debug, Serialize)]
+/// decision; the server-side oneshot sender is never serialized.
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
 pub struct ApprovalDto {
     pub approval_id: String,
     pub session_id: String,
@@ -311,7 +222,8 @@ pub struct ApprovalDto {
     pub created_at_ms: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
 pub struct TodoDto {
     pub id: String,
     pub title: String,
@@ -332,277 +244,219 @@ impl From<&TodoTask> for TodoDto {
     }
 }
 
+/// Full application state snapshot returned by `GET /api/v2/state`.
+///
+/// `event_cursor` is the current global bridge cursor; the client subscribes
+/// from this position so no event is lost between the snapshot and the SSE
+/// stream. `protocol_version` lets a frontend reject an incompatible server
+/// instead of misreading state. New fields must be additive.
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct AppSnapshotV2 {
+    pub protocol_version: u32,
+    /// Current process-global event cursor; subscribe from here.
+    pub event_cursor: u64,
+    pub active_session: Option<String>,
+    pub sessions: Vec<SessionStateDto>,
+    pub provider: String,
+    pub model: String,
+    pub mode: String,
+    /// Serialized pending approval of the oldest waiting session, if any.
+    pub approval: Option<ApprovalDto>,
+    pub todos: Vec<TodoDto>,
+}
+
+/// A single message in a session's transcript, in display shape. The `kind`
+/// field is the discriminator; provider-private payloads are translated into a
+/// display-safe shape and never leaked as raw JSON.
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MessageDto {
+    User {
+        id: i64,
+        content: String,
+        created_at: String,
+    },
+    Assistant {
+        id: i64,
+        content: String,
+        created_at: String,
+    },
+    System {
+        id: i64,
+        content: String,
+        created_at: String,
+    },
+    Thinking {
+        id: i64,
+        content: String,
+        created_at: String,
+    },
+    Context {
+        id: i64,
+        label: String,
+        content: String,
+        created_at: String,
+    },
+    CompactionSummary {
+        id: i64,
+        content: String,
+        created_at: String,
+    },
+    Tool {
+        id: i64,
+        call_id: String,
+        name: String,
+        #[ts(type = "any")]
+        arguments: Value,
+        status: String,
+        result: Option<String>,
+        created_at: String,
+    },
+    ToolCalls {
+        id: i64,
+        calls: Vec<ToolCall>,
+        created_at: String,
+    },
+    ToolOutput {
+        id: i64,
+        call_id: String,
+        output: String,
+        created_at: String,
+    },
+}
+
+/// One page of a session transcript, in display (oldest→newest) order.
+///
+/// `next_before` is an opaque cursor for fetching the previous (older) page:
+/// echo it back as the `before` query parameter. `has_more` is true when older
+/// messages exist.
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct MessagePage {
+    pub messages: Vec<MessageDto>,
+    pub next_before: Option<i64>,
+    pub has_more: bool,
+}
+
+/// The default page size for the messages endpoint; clamped to 20..=200.
+pub const DEFAULT_PAGE_SIZE: usize = 100;
+
+/// Lower bound for a message page size.
+pub const MIN_PAGE_SIZE: usize = 20;
+
+/// Upper bound for a message page size.
+pub const MAX_PAGE_SIZE: usize = 200;
+
+/// Clamps a requested page size to the protocol bounds.
+pub fn clamp_page_size(requested: Option<usize>) -> usize {
+    requested
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(MIN_PAGE_SIZE, MAX_PAGE_SIZE)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::Usage;
-
-    fn sample_approval() -> AgentEvent {
-        let (_tx, _rx) = tokio::sync::oneshot::channel();
-        AgentEvent::Approval {
-            call: ToolCall {
-                id: "call_1".into(),
-                name: "file_write".into(),
-                arguments: serde_json::json!({"path": "a.txt"}),
-            },
-            reason: "writes a file".into(),
-            source_session_id: None,
-            source_title: None,
-            reply: _tx,
-        }
-    }
 
     #[test]
-    fn every_event_maps_to_a_dto_variant() {
-        let session = "s1";
-        let cases = vec![
-            AgentEvent::ReasoningDelta("thinking".into()),
-            AgentEvent::ProviderRetry {
-                attempt: 2,
-                reason: "429".into(),
-                delay_ms: 1000,
-            },
-            AgentEvent::ModelStreaming,
-            AgentEvent::WebSearchStarted {
-                query: "rust".into(),
-            },
-            AgentEvent::WebSearchResult {
-                title: "t".into(),
-                url: "https://e.com".into(),
-                snippet: "s".into(),
-            },
-            AgentEvent::WebSearchCompleted { count: 3 },
-            AgentEvent::Cancelled("user".into()),
-            AgentEvent::TextDelta("hi".into()),
-            sample_approval(),
-            AgentEvent::ToolStarted(ToolCall {
-                id: "c".into(),
-                name: "file_read".into(),
-                arguments: serde_json::json!({}),
-            }),
-            AgentEvent::ToolFinished {
-                call: ToolCall {
-                    id: "c".into(),
-                    name: "file_read".into(),
-                    arguments: serde_json::json!({}),
-                },
-                result: "ok".into(),
-            },
-            AgentEvent::Usage(Usage {
-                input_tokens: 1,
-                output_tokens: 2,
-                total_tokens: 3,
-            }),
-            AgentEvent::Completed { items: Vec::new() },
-            AgentEvent::Failed("boom".into()),
-            AgentEvent::SessionsChanged,
-            AgentEvent::CompactionStarted,
-            AgentEvent::CompactionCompleted { hidden: 4 },
-            AgentEvent::CompactionFailed("oops".into()),
-            AgentEvent::TodoUpdated { tasks: Vec::new() },
-            AgentEvent::ChildSessionProgress {
-                session_id: "child_1".into(),
-                progress: crate::agent::ChildSessionProgress {
-                    status: crate::agent::ChildSessionStatus::Streaming,
-                    turn: 2,
-                    max_turns: 5,
-                    tool: Some("file_write".into()),
-                    updated_at: std::time::Instant::now(),
-                },
-            },
-        ];
-        for event in cases {
-            let is_approval = matches!(event, AgentEvent::Approval { .. });
-            let approval = if is_approval {
-                Some(ApprovalInfo {
-                    approval_id: "ap_1".into(),
-                    call: ToolCall {
-                        id: "c".into(),
-                        name: "file_write".into(),
-                        arguments: serde_json::json!({}),
-                    },
-                    reason: "writes".into(),
-                    source_session_id: None,
-                    source_title: None,
-                })
-            } else {
-                None
-            };
-            let dto = to_dto(session, &event, approval.as_ref());
-            assert!(dto.is_some(), "event must map to a dto");
-            let json = serde_json::to_value(dto.unwrap()).unwrap();
-            assert!(json.get("type").is_some(), "dto must carry a type tag");
-            assert_eq!(json["session_id"], "s1");
-        }
-    }
-
-    #[test]
-    fn every_dto_variant_carries_a_snake_case_type_tag() {
-        // Exhaustive over the wire type set: every variant must serialize with
-        // a `type` discriminator whose value is snake_case. This is the
-        // contract locked by .agents/guides/ui-contract.md (EventDto 类型集).
+    fn every_event_variant_serializes_with_a_snake_case_tag() {
         let call = ToolCall {
             id: "c".into(),
             name: "file_read".into(),
             arguments: serde_json::json!({"path": "a.txt"}),
         };
-        let todo = TodoTask {
-            id: "t1".into(),
-            title: "ship".into(),
-            status: crate::model::TodoStatus::Pending,
-            created_at: "now".into(),
-            updated_at: "now".into(),
-        };
-        let variants: Vec<EventDto> = vec![
-            EventDto::ReasoningDelta {
-                session_id: "s".into(),
-                delta: "d".into(),
-            },
-            EventDto::ProviderRetry {
-                session_id: "s".into(),
+        let variants: Vec<Event> = vec![
+            Event::ReasoningDelta { delta: "d".into() },
+            Event::ProviderRetry {
                 attempt: 1,
                 reason: "r".into(),
                 delay_ms: 100,
             },
-            EventDto::ModelStreaming {
-                session_id: "s".into(),
-            },
-            EventDto::WebSearchStarted {
-                session_id: "s".into(),
-                query: "q".into(),
-            },
-            EventDto::WebSearchResult {
-                session_id: "s".into(),
+            Event::ModelStreaming,
+            Event::WebSearchStarted { query: "q".into() },
+            Event::WebSearchResult {
                 title: "t".into(),
                 url: "u".into(),
                 snippet: "sn".into(),
             },
-            EventDto::WebSearchCompleted {
-                session_id: "s".into(),
-                count: 1,
-            },
-            EventDto::Cancelled {
-                session_id: "s".into(),
-                reason: "r".into(),
-            },
-            EventDto::TextDelta {
-                session_id: "s".into(),
-                delta: "d".into(),
-            },
-            EventDto::Approval {
-                session_id: "s".into(),
+            Event::WebSearchCompleted { count: 1 },
+            Event::Cancelled { reason: "r".into() },
+            Event::TextDelta { delta: "d".into() },
+            Event::Approval {
                 approval_id: "ap".into(),
                 call: call.clone(),
                 reason: "r".into(),
                 source_session_id: None,
                 source_title: None,
             },
-            EventDto::ApprovalResolved {
-                session_id: "s".into(),
+            Event::ApprovalResolved {
                 approval_id: "ap".into(),
                 approved: true,
             },
-            EventDto::ToolStarted {
-                session_id: "s".into(),
-                call: call.clone(),
-            },
-            EventDto::ToolFinished {
-                session_id: "s".into(),
+            Event::ToolStarted { call: call.clone() },
+            Event::ToolFinished {
                 call: call.clone(),
                 result: "ok".into(),
             },
-            EventDto::Usage {
-                session_id: "s".into(),
+            Event::Usage {
                 input_tokens: 1,
                 output_tokens: 2,
                 total_tokens: 3,
             },
-            EventDto::Completed {
-                session_id: "s".into(),
-            },
-            EventDto::Failed {
-                session_id: "s".into(),
-                error: "e".into(),
-            },
-            EventDto::SessionsChanged {
-                session_id: "s".into(),
-            },
-            EventDto::ChildSessionProgress {
-                session_id: "s".into(),
+            Event::Completed,
+            Event::Failed { error: "e".into() },
+            Event::SessionsChanged,
+            Event::ChildSessionProgress {
                 child_session_id: "c".into(),
                 status: "running".into(),
                 turn: 1,
                 max_turns: 2,
                 tool: None,
             },
-            EventDto::LocalCommandFinished {
-                session_id: "s".into(),
+            Event::LocalCommandFinished {
                 command: "c".into(),
                 result: "r".into(),
             },
-            EventDto::CompactionStarted {
-                session_id: "s".into(),
-            },
-            EventDto::CompactionCompleted {
-                session_id: "s".into(),
-                hidden: 1,
-            },
-            EventDto::CompactionFailed {
-                session_id: "s".into(),
-                error: "e".into(),
-            },
-            EventDto::TodoUpdated {
-                session_id: "s".into(),
-                tasks: vec![todo],
-            },
+            Event::CompactionStarted,
+            Event::CompactionCompleted { hidden: 1 },
+            Event::CompactionFailed { error: "e".into() },
+            Event::TodoUpdated { tasks: Vec::new() },
+            Event::TranscriptInvalidated,
+            Event::ResyncRequired,
         ];
         assert!(!variants.is_empty());
         for variant in variants {
-            let json = serde_json::to_value(variant).expect("dto serializes");
-            let type_tag = json["type"].as_str().expect("dto must carry a type tag");
+            let json = serde_json::to_value(variant).expect("event serializes");
+            let tag = json["type"].as_str().expect("event must carry a type tag");
             assert!(
-                type_tag.chars().all(|c| c.is_ascii_lowercase() || c == '_')
-                    && type_tag
-                        .chars()
-                        .next()
-                        .is_some_and(|c| c.is_ascii_lowercase()),
-                "type tag must be snake_case, got {type_tag:?}"
+                tag.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+                    && tag.chars().next().is_some_and(|c| c.is_ascii_lowercase()),
+                "type tag must be snake_case, got {tag:?}"
             );
         }
     }
 
     #[test]
-    fn approval_dto_requires_approval_info() {
-        let event = sample_approval();
-        let dto = to_dto("s1", &event, None);
-        assert!(dto.is_none());
+    fn envelope_carries_cursor_session_and_flattened_event() {
+        let envelope = Envelope {
+            cursor: 7,
+            session_id: "s1".into(),
+            event: Event::TextDelta { delta: "hi".into() },
+        };
+        let json = serde_json::to_value(envelope).unwrap();
+        assert_eq!(json["cursor"], 7);
+        assert_eq!(json["session_id"], "s1");
+        assert_eq!(json["type"], "text_delta");
+        assert_eq!(json["delta"], "hi");
     }
 
     #[test]
-    fn child_progress_dto_carries_child_fields() {
-        let event = AgentEvent::ChildSessionProgress {
-            session_id: "child_1".into(),
-            progress: crate::agent::ChildSessionProgress {
-                status: crate::agent::ChildSessionStatus::RunningTool,
-                turn: 3,
-                max_turns: 5,
-                tool: Some("file_write".into()),
-                updated_at: std::time::Instant::now(),
-            },
-        };
-        let dto = to_dto("parent", &event, None).expect("child progress maps");
-        let json = serde_json::to_value(dto).unwrap();
-        assert_eq!(json["type"], "child_session_progress");
-        // The DTO keeps the *parent* session as the routing target and the
-        // child id in a dedicated field, so a single SSE stream can render the
-        // batch on the parent while tracking each child individually.
-        assert_eq!(json["session_id"], "parent");
-        assert_eq!(json["child_session_id"], "child_1");
-        // Non-terminal statuses are intentionally coalesced to "running" (the
-        // stable wire contract); turn/tool carry the finer-grained detail.
-        assert_eq!(json["status"], "running");
-        assert_eq!(json["turn"], 3);
-        assert_eq!(json["max_turns"], 5);
-        assert_eq!(json["tool"], "file_write");
+    fn page_size_is_clamped_to_protocol_bounds() {
+        assert_eq!(clamp_page_size(None), 100);
+        assert_eq!(clamp_page_size(Some(10)), 20);
+        assert_eq!(clamp_page_size(Some(500)), 200);
+        assert_eq!(clamp_page_size(Some(50)), 50);
     }
 }

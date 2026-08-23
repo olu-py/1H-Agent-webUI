@@ -6,10 +6,10 @@
 
 ## 入口
 
-- `src/tools/mod.rs`：`definitions()`、`execute()`、`policy()` 与只读模式拦截。
-- `src/tools/filesystem.rs`、`git.rs`、`process.rs`、`web.rs`：各领域实现。
-- `src/security.rs`：`Workspace` 解析、`classify_tool`。
-- 下游接入：`src/agent.rs`（`WRITE_TOOLS`/角色 infer）、`src/prompt.rs`、展示层（`src/server/dto.rs` + `web/`，翻译/风险/摘要）。
+- `crates/protium-core/src/tools/mod.rs`：`definitions()`、`execute()`、`policy()` 与只读模式拦截。
+- `crates/protium-core/src/tools/filesystem.rs`、`git.rs`、`process.rs`、`web.rs`：各领域实现。
+- `crates/protium-core/src/security.rs`：`Workspace` 解析、`classify_tool`。
+- 下游接入：`crates/protium-core/src/agent.rs`（`WRITE_TOOLS`/角色 infer）、`crates/protium-core/src/prompt.rs`、展示层（`crates/protium-core/src/protocol.rs` 的 `ToolCall` dto + `web/`，翻译/风险/摘要）。
 
 ## 不变量
 

@@ -31,9 +31,10 @@
 ## 验证
 
 ```bash
+cd web && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && pnpm build && cd ..
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features --locked -- -D warnings
-cargo test --all-features --locked
+cargo test --quiet --all-features --locked
 cargo build --release --locked
 git diff --check
 ```

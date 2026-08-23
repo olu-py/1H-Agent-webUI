@@ -3,6 +3,7 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
+use ts_rs::TS;
 
 use crate::provider::ToolCall;
 
@@ -76,7 +77,8 @@ pub enum DisplayContent {
     Thinking(ThinkingDisplay),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum TodoStatus {
     Pending,
@@ -110,7 +112,8 @@ impl TodoStatus {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct TodoTask {
     pub id: String,
     pub title: String,

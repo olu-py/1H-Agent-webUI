@@ -313,8 +313,12 @@ pub struct ServerConfig {
     pub bind: String,
     /// TCP port. Clamped to `1024..=65535` at load.
     pub port: u32,
-    /// Maximum number of events retained per session in the SSE replay ring.
+    /// Maximum number of events retained in the SSE replay ring (clamped
+    /// `16..=4096` at load).
     pub event_buffer: usize,
+    /// Maximum total bytes retained in the SSE replay ring (clamped
+    /// `1 MiB..=16 MiB` at load).
+    pub event_max_bytes: usize,
     /// How long a pending approval waits before it is rejected automatically.
     pub approval_timeout_seconds: u64,
 }
@@ -325,6 +329,7 @@ impl Default for ServerConfig {
             bind: "127.0.0.1".into(),
             port: 7788,
             event_buffer: 512,
+            event_max_bytes: 4 * 1024 * 1024,
             approval_timeout_seconds: 300,
         }
     }
@@ -594,6 +599,10 @@ impl Config {
         config.browser.keep_alive_seconds = config.browser.keep_alive_seconds.min(300);
         config.server.port = config.server.port.clamp(1024, 65535);
         config.server.event_buffer = config.server.event_buffer.clamp(16, 4096);
+        config.server.event_max_bytes = config
+            .server
+            .event_max_bytes
+            .clamp(1024 * 1024, 16 * 1024 * 1024);
         config.server.approval_timeout_seconds =
             config.server.approval_timeout_seconds.clamp(10, 3600);
         config.runtime.max_background_sessions =

@@ -6,14 +6,14 @@
 
 ## 入口
 
-- `src/storage.rs`：`from_connection`（建表 + `ensure_column` 兼容旧库 + `backfill_turns`）、全部读写方法。
-- `src/app.rs`（迁移完成后为 `src/server/mod.rs`）：undo/redo/delete/fork 命令与 `reload_current_session` 的存储交互。
+- `crates/protium-core/src/storage.rs`：`from_connection`（建表 + `ensure_column` 兼容旧库 + `backfill_turns`）、全部读写方法、`load_message_page` 游标分页与 `idx_messages_session_hidden_id` 索引。
+- `crates/protium-core/src/app.rs`：undo/redo/delete/fork 命令与 `reload_current_session` 的存储交互。
 
 ## 不变量
 
 - 单连接 + `Arc<Mutex<Connection>>`，WAL + foreign_keys ON。表全部外键 `ON DELETE CASCADE`，但删除会话走软删（`deleted_at`），CASCADE 实际永不触发。
 - 新表走 `CREATE TABLE IF NOT EXISTS` + 迁移版本号；旧库缺列用 `ensure_column`（PRAGMA table_info 探测）补，不用 ALTER IF NOT EXISTS。改表语义必须覆盖"已存在旧库"路径并加迁移版本。
-- 消息一律挂在当前 `head_turn_id` 对应的 turn 上（`append_typed_item` 模式）；`load_messages` 沿 head 父链递归取活链，隐藏的 compaction 消息被过滤。
+- 消息一律挂在当前 `head_turn_id` 对应的 turn 上（`append_typed_item` 模式）；`load_messages` 沿 head 父链递归取活链，隐藏的 compaction 消息被过滤；消息页分页沿同一活链按 `id` 倒序游标（`next_before` + `has_more`）。
 - undo/redo 只把 `head_turn_id` 移到 parent/child；会话内容回滚由 app 层按 `file_snapshots` 完成，storage 只提供 `restore_turn_files`/`turns_between` 查询。
 - 快照写工具调用前由 agent 层捕获 pre_image、执行后回填 post_image；单文件超 `checkpoint_max_file_bytes` 存 marker（existed=0），单会话超 `checkpoint_max_session_bytes` 丢最旧，均由 storage 在写事务内 enforce。
 - 软删子树返回全部后代 id 供调用方关停 runtime；快照随软删由 `purge_soft_deleted_snapshots` 清理（`delete_session` 路径）。
