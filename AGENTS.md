@@ -15,15 +15,16 @@ migration: 多界面低耦合改造（Cargo workspace + protium-core + v2 协议
 ```
 
 - 三个发布程序运行时均不依赖 Node；构建期允许 pnpm/TypeScript/Vite（`web/`，锁定版本，产物内嵌）。不引入运行时 Node、Electron、捆绑 Chromium、动态插件 ABI 或后台轮询（SSE 是服务端推送，浏览器 EventSource 重连不算轮询）。所有路径、网络、工具、进程、缓存、channel 和输出必须有边界、取消与释放路径。
-- `web/` 是共享 React 前端（Web 经 HTTP/SSE、Desktop 经 Tauri IPC 消费），`src/transport/` 是唯一网络/IPC 接入层，actions/store/hooks 不得导入 fetch、EventSource 或 Tauri API；`web/ts/` 是 ts-rs 生成的 v2 类型（勿手改，CI 漂移检查）。
+- `web/` 是共享 React 前端（Web 经 HTTP/SSE、Desktop 经 Tauri IPC 消费），`src/transport/` 是唯一网络/IPC 接入层，actions/store/hooks 不得导入 fetch、EventSource 或 Tauri API；`web/ts/` 从锁定的 core checkout 同步（勿手改，CI 漂移检查）。
 
 ## 一分钟工作流
 
 1. 先运行 `git status --short --branch`，识别并保护用户已有改动。
 2. 用 `rg` 定位定义、直接调用者、事件变体和相邻测试；只读任务命中的专题。
-3. 从 `crates/1h-agent-web/src/main.rs -> server::run` 进入：UI 无关核心在 `protium-core`（`service.rs` 的 `AppService::start -> AppHandle`、`app.rs` 的 `App`/`SessionRuntime`、模型/工具循环在 `AgentRunner`）。
+3. 从 `crates/1h-agent-web/src/main.rs -> server::run` 进入；UI 无关接口在独立 `1H-Agent-core` 仓库的 `src/service.rs`、`protocol.rs`、`bridge.rs`。
 4. 修改事件、配置或持久化类型时，覆盖所有构造点、match、序列化、恢复和测试。
 5. 先跑最小目标测试；跨模块行为才升级到完整 Clippy 和测试。
+6. core 变更先在独立仓库完成并 push；本仓库只定向更新 Git 依赖、同步 bindings、适配并提交锁文件，禁止编辑 Cargo checkout。
 
 ## 任务路由
 

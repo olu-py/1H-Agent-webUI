@@ -1,12 +1,12 @@
-# 计划：1H-Agent WebUI 改造
+# 已归档：1H-Agent WebUI 改造计划
 
-> 来源：2026-08-21 改版决策。将 TUI 形态改为浏览器访问的 WebUI 形态，复用既有
-> UI 无关层，替换终端交互层。本文件是权威迁移计划；配套修订 AGENTS.md 与
-> `.agents/guides/`（tui.md -> webui.md，runtime.md 改写）。每完成一项勾选复选框。
+> 来源：2026-08-21 改版决策。迁移已经完成，本文仅保留实施记录，不再是当前维护依据。
+> 当前架构、入口和验证以 `AGENTS.md`、`.agents/guides/webui.md` 与
+> `.agents/guides/ui-contract.md` 为准。
 
 ---
 
-## 现状盘点（依据源码，2026-08-21）
+## 历史基线（依据 2026-08-21 源码）
 
 - UI 无关层（直接复用，不动协议）：`agent.rs`（AgentRunner/AgentEvent）、
   `session.rs`（SessionRuntime）、`storage.rs`、`provider/`、`tools/`、
@@ -25,7 +25,7 @@
 | 决策点 | 结论 | 理由 |
 | --- | --- | --- |
 | 进程形态 | 单 Rust 二进制内嵌 HTTP 服务器 + 前端静态资源 | 保留"单二进制"章程；无 Node.js/Chromium |
-| 前端技术 | 无构建步骤的静态 HTML/CSS/原生 JS（ES 模块），或极小 Preact | 单文件内嵌；避免 Node 构建链；终端用户 `cargo install` 即用 |
+| 前端技术 | React + TypeScript + Vite，pnpm 仅用于开发/构建 | 提交并内嵌 `web/dist/`；终端用户运行时无需 Node |
 | 实时通道 | SSE（`text/event-stream`）下发事件流 | 单向流为主，比 WebSocket 简单；浏览器自动重连 |
 | 命令上行 | REST POST（JSON） | 提交输入/命令/审批/取消一次一请求，语义清晰 |
 | 会话模型 | 复用 SessionRuntime + router 聚合器 | 现有三段事件链原样保留，仅换 App 层消费端 |
@@ -96,10 +96,10 @@
       响应"）→ 补推送；`sessions_changed` 触发 refreshState 重载消息流导致
       集群面板/实时流式被清空 → refreshState 仅在会话切换时重载消息。
 
-### 阶段 3：前端实现（静态资源，无 Node）
+### 阶段 3：前端实现（历史记录；现已迁移为 React/Vite）
 
-- [x] `web/` 目录：`index.html` + `modules/*.js` + `styles.css`，ES 模块
-      原生实现，禁用 Node 构建；资源经 rust-embed 内嵌进二进制。
+- [x] `web/` 最终采用 React + TypeScript + Vite；构建期使用 pnpm，提交的
+      `web/dist/` 经 rust-embed 内嵌进二进制，运行时不依赖 Node。
 - [x] 首页（会话列表 + 新建/恢复 + Provider/模型选择）复刻 home 语义：
       不预建空会话，首条消息提交才创建会话。
 - [x] 主界面：消息流（Markdown 渲染可用极小 vendored 渲染器或转纯文本 +

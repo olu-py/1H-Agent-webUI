@@ -1,22 +1,30 @@
-# 1H-Agent
+# 1H-Agent WebUI
 
-`1H` 指氕（protium），即氢-1 同位素。1H-Agent 是面向 Linux、macOS 和 Windows 的轻量、权限感知浏览器 Agent：单 Rust 二进制内嵌 HTTP 服务与前端页面，流式对话、工具审批、AI 集群与本地会话持久化全部由单个进程承担，无 Node.js 构建链、无 Python、无 Chromium。
+`1H` 指氕（protium），即氢-1 同位素。1H-Agent WebUI 是面向 Linux、macOS 和 Windows 的轻量、权限感知浏览器 Agent：单 Rust 二进制内嵌 HTTP 服务与 React 页面，流式对话、工具审批、AI 集群与本地会话持久化全部由单个进程承担。运行时不需要 Node.js、Python 或捆绑 Chromium；修改前端时使用锁定版本的 pnpm、TypeScript 和 Vite。
+
+本仓库只维护 WebUI 适配器；UI 无关状态机来自独立的 [1H-Agent-core](https://github.com/olu-py/1H-Agent-core) Git 依赖。普通用户不需要单独下载或构建 core。终端界面是另一个独立消费端，见 [1H-Agent TUI](https://github.com/olu-py/1H-Agent)。
 
 ## 获取与启动
 
-GitHub Releases 提供 Linux x86_64、Windows x86_64、macOS Intel 和 macOS Apple Silicon 的原生包，并附带 `SHA256SUMS.txt` 用于校验。前端资源已内嵌进二进制，发布归档无需额外文件。
+[GitHub Releases](https://github.com/olu-py/1H-Agent-webUI/releases) 提供 Linux x86_64、Windows x86_64、macOS Intel 和 macOS Apple Silicon 的原生包，并附带 `SHA256SUMS.txt` 用于校验。前端资源已内嵌进二进制，发布归档无需额外文件。
 
 启动后默认监听回环地址，用浏览器打开输出中的地址即可：
 
 ```bash
-./1h-agent --workspace /path/to/project
+./1h-agent-web --workspace /path/to/project
 # 1H-Agent WebUI listening on http://127.0.0.1:7788/
+```
+
+Windows 解压后在 PowerShell 运行：
+
+```powershell
+.\1h-agent-web.exe --workspace C:\path\to\project
 ```
 
 macOS 二进制未签名。若系统阻止首次运行，确认文件来源后可移除下载隔离属性：
 
 ```bash
-xattr -d com.apple.quarantine ./1h-agent
+xattr -d com.apple.quarantine ./1h-agent-web
 ```
 
 常用命令行参数：
@@ -27,30 +35,49 @@ xattr -d com.apple.quarantine ./1h-agent
 | `--port <n>` | WebUI 端口（覆盖 `server.port`，clamp 到 1024-65535） |
 | `--host <addr>` | 绑定地址（覆盖 `server.bind`）。默认仅回环 `127.0.0.1`；绑定非回环地址时强制启用 token 鉴权 |
 
+也可以使用 Rust 工具链从 Git 安装。仓库已提交 `web/dist/`，因此这种安装不需要 Node；`--locked` 会使用锁定的 core commit：
+
+```bash
+cargo install --git https://github.com/olu-py/1H-Agent-webUI.git \
+  --locked --bin 1h-agent-web
+```
+
 从源码开发运行：
 
 ```bash
-cargo run -- --workspace /path/to/project
+git clone https://github.com/olu-py/1H-Agent-webUI.git
+cd 1H-Agent-webUI
+cargo run --locked --package protium-web --bin 1h-agent-web -- --workspace /path/to/project
 ```
 
 构建 release 二进制：
 
 ```bash
-cargo build --release
-./target/release/1h-agent --workspace /path/to/project
+cargo build --release --locked --package protium-web --bin 1h-agent-web
+./target/release/1h-agent-web --workspace /path/to/project
 ```
 
 ## 更新 protium-core
 
-WebUI 通过 Git 依赖使用独立的 `protium-core` 仓库。core 合并到 `main` 后，在本仓库运行：
+这一节只面向维护者。普通构建不会自动追踪 core 的 `main`：`Cargo.lock` 锁定具体 commit，只有提交新的锁文件后，其他用户才会获得新版 core。
+
+先在独立的 [core 仓库](https://github.com/olu-py/1H-Agent-core) 完成测试、bindings、提交并 push `main`，再在本仓库运行：
 
 ```bash
 cargo update -p protium-core
 bash scripts/core-bindings.sh sync
+bash scripts/core-bindings.sh check
 cargo test --all-features --locked
+cd web
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
 ```
 
-协议绑定由 core 仓库维护；同步后再按 WebUI 的 TypeScript 测试和适配器变更更新前端。
+协议绑定由 core 仓库维护；同步脚本从 `Cargo.lock` 对应的 Git checkout 复制 `bindings/*.ts` 到 `web/ts/`。完成 Rust/TypeScript 适配后，在本仓库单独提交 `Cargo.lock`、`web/ts/` 和前端变化产生的 `web/dist/`。普通 `cargo update` 会更新其他依赖，不适合仅升级 core。
+
+不要修改 Cargo 缓存中的 checkout，也不要把 core 源码复制回本仓库。core、TUI、WebUI 的版本号、tag、commit 和 push 互相独立。
 
 ## 浏览器界面
 

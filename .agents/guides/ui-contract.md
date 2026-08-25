@@ -8,14 +8,14 @@
 
 ## 入口
 
-- 核心：`protium-core (Git dependency): src/protocol.rs`（Envelope/Event/MessageDto/PROTOCOL_VERSION）、`service.rs`（AppHandle/REST 语义）、`bridge.rs`（EventBridge/游标/replay/resync）。
-- 前端类型：`web/ts/`（ts-rs 生成，CI 漂移检查）；Web 服务端：`crates/1h-agent-web/src/server.rs`。
+- 独立 core 仓库：`src/protocol.rs`（Envelope/Event/MessageDto/PROTOCOL_VERSION）、`service.rs`（AppHandle 语义）、`bridge.rs`（EventBridge/游标/replay/resync）。
+- 前端类型：`web/ts/`（从锁定 core checkout 同步，CI 漂移检查）；Web 服务端：`crates/1h-agent-web/src/server.rs`。
 
 ## 契约
 
 - 线协议 v2：REST 端点全在 `/api/v2`（state/messages/input/commands/cancel/activate/approvals/provider/events），语义见 `build_router`；快照必含 protocol_version、event_cursor、active_session、sessions、provider/model/mode、approval、todos。
 - 事件 = `Envelope`（全局单调 cursor + session_id + flattened Event，type snake_case）；消息页 = `MessagePage`（messages、next_before、has_more，游标分页）。必处理：text_delta/reasoning_delta、tool_*、approval(_resolved)、completed/failed/cancelled、todo_updated、local_command_finished、sessions_changed、child_session_progress、transcript_invalidated；未知 type 静默忽略。
-- 订阅顺序：先 `replay_after(event_cursor)` 再 `subscribe()`（防丢/重）；`ResyncRequired` 时消费端丢弃本地事件缓存、重取快照与消息页。
+- 浏览器从快照 `event_cursor` 建立 SSE；服务端桥接 replay + live，客户端按 cursor 去重。进程内消费端使用 core 的原子 `subscribe_from`；`ResyncRequired` 时丢弃本地事件缓存、重取快照与消息页。
 - 前端分层：transport 唯一 fetch/EventSource/Tauri IPC、错误只走 onError；store 纯状态（`state/reducer.ts` reduce + `state/store.ts` useSyncExternalStore，PROTOCOL_VERSION 检查，未知 type 静默忽略）；actions 提供语义 action 集（`actions.ts`，只调 Transport 并回灌 store）；view 只调 actions、禁止直连 transport。消费端 Transport 接口见 `web/src/transport/transport.ts`。
 - 任何消费端（含 TUI/Desktop）：命令 = AppHandle 方法（与 HTTP 同通道，禁止第二套命令语义）、事件 = `subscribe()/replay_after()/current_cursor()`（消费 Envelope/Event，禁止解析 AgentEvent）、快照 = `snapshot()/messages()`；接入点 `AppService::start(CoreConfig) -> AppHandle`。
 
@@ -25,7 +25,7 @@
 - 新增 AgentEvent 变体一次接通：forward -> session.rs handle_event -> routed_to_event -> EventBridge -> 前端处理，漏一处静默丢事件。
 - 只有 transport 触网络、view 触 DOM；任何消费端不得另起事件/命令通路。
 - Approval oneshot sender 不可序列化：DTO 只带 approval_id；超时按拒绝并发终态。
-- ts-rs 类型与源码同源：改动协议类型后重跑 `protium-tsgen` 并提交 `web/ts/` 漂移。
+- ts-rs 类型与 core 同源：core 先提交 `bindings/`，本仓库定向更新依赖后运行 `bash scripts/core-bindings.sh sync`；不得手改 `web/ts/`。
 
 ## 诊断
 
@@ -39,4 +39,4 @@
 - `cargo test --quiet --lib --all-features --locked protocol`（穷尽 Event 变体 snake_case tag）+ `cargo test --quiet --lib --all-features --locked bridge`（游标/resync）。
 - 分层：rg 查 `src/state`、`src/actions`、`src/hooks` 无 fetch/EventSource；`src/components` 无 fetch。
 - 前端单测：`cd web && pnpm test`（reducer 全事件变体、未知事件兼容、Transport 契约、重连/resync、缓存淘汰）。
-- 文档：`bash scripts/check-agent-docs.sh`、`git diff --check`；冒烟 curl /api/v2/state（含 protocol_version）+ 浏览器流程；换 UI 验收见 webui.md。
+- core 更新：`cargo update -p protium-core` -> `core-bindings.sh sync` -> `core-bindings.sh check` -> Rust/前端测试；文档跑 `check-agent-docs.sh` 与 `git diff --check`。
