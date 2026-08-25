@@ -40,6 +40,18 @@ cargo build --release
 ./target/release/1h-agent --workspace /path/to/project
 ```
 
+## 更新 protium-core
+
+WebUI 通过 Git 依赖使用独立的 `protium-core` 仓库。core 合并到 `main` 后，在本仓库运行：
+
+```bash
+cargo update -p protium-core
+bash scripts/core-bindings.sh sync
+cargo test --all-features --locked
+```
+
+协议绑定由 core 仓库维护；同步后再按 WebUI 的 TypeScript 测试和适配器变更更新前端。
+
 ## 浏览器界面
 
 首页列出可恢复的会话并允许新建；输入首条消息并回车即创建新会话，不会预先建立空会话。主界面包含消息流（流式文本、思考面板、工具卡片）、任务清单浮窗、模式/Provider/模型控件、命令输入框与审批弹层。实时事件经 SSE 推送；同一会话在多个标签页打开时共享同一条事件流，命令通过 REST 串行进入状态机。

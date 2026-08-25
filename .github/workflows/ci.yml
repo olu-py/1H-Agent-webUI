@@ -63,9 +63,7 @@ jobs:
       - name: Tests
         run: cargo test --quiet --all-features --locked
       - name: TS bindings drift check
-        run: |
-          TS_RS_EXPORT_DIR="web/ts" cargo run -q -p protium-core --bin protium-tsgen
-          git diff --exit-code -- web/ts
+        run: bash scripts/core-bindings.sh check
       - name: Release build
         run: cargo build --release --locked
 

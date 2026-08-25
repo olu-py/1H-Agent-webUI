@@ -8,4 +8,4 @@ import type { MessageDto } from "./MessageDto";
  * echo it back as the `before` query parameter. `has_more` is true when older
  * messages exist.
  */
-export type MessagePage = { messages: Array<MessageDto>, next_before: number | null, has_more: boolean, };
+export type MessagePage = { messages: Array<MessageDto>, next_before: bigint | null, has_more: boolean, };

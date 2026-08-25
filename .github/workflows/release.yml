@@ -21,7 +21,7 @@ jobs:
         shell: bash
         run: |
           tag_version="${GITHUB_REF_NAME#v}"
-          package_version="$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "protium-core") | .version')"
+          package_version="$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "protium-web") | .version')"
           test -n "$package_version"
           test "$tag_version" = "$package_version"
 

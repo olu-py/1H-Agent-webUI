@@ -7,9 +7,9 @@ HTTP/SSE 服务面、v2 事件序列化、审批待决表、静态前端资源�
 ## 入口
 
 - `crates/1h-agent-web/src/server.rs`：`run`、v2 路由表、SSE 适配、上行命令转发。
-- `crates/protium-core/src/service.rs`：`AppService::start -> AppHandle`、`Engine` 状态机、审批待决表、命令串行化。
-- `crates/protium-core/src/bridge.rs`：`EventBridge` 回放环、SSE 下发、全局游标/replay/resync。
-- `crates/protium-core/src/protocol.rs`：v2 `Envelope`/`Event` 序列化与 `approval_id` 映射。
+- `protium-core (Git dependency): src/service.rs`：`AppService::start -> AppHandle`、`Engine` 状态机、审批待决表、命令串行化。
+- `protium-core (Git dependency): src/bridge.rs`：`EventBridge` 回放环、SSE 下发、全局游标/replay/resync。
+- `protium-core (Git dependency): src/protocol.rs`：v2 `Envelope`/`Event` 序列化与 `approval_id` 映射。
 - `crates/1h-agent-web/src/auth.rs`：回环/非回环 token 鉴权（token 存 data_dir，不进日志）。
 - `web/`：共享 React 前端（Vite + TS，`pnpm build` 产物内嵌 `web/dist/`）；`src/transport/` 唯一网络层。
 

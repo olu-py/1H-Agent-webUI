@@ -29,14 +29,14 @@ migration: 多界面低耦合改造（Cargo workspace + protium-core + v2 协议
 
 | 领域 | 首读入口 | 专题/读取条件 |
 | --- | --- | --- |
-| 启动、服务、全局状态、会话路由 | `crates/protium-core/src/service.rs`、`crates/protium-core/src/app.rs`、`crates/protium-core/src/session.rs` | [Runtime](.agents/guides/runtime.md)；仅沿目标事件链读取 |
+| 启动、服务、全局状态、会话路由 | `protium-core (Git dependency): src/service.rs`、`protium-core (Git dependency): src/app.rs`、`protium-core (Git dependency): src/session.rs` | [Runtime](.agents/guides/runtime.md)；仅沿目标事件链读取 |
 | HTTP/SSE 面、v2 端点、前端资源、命令端点 | `crates/1h-agent-web/src/server.rs`、`web/`（React 前端，`pnpm build` 产物内嵌 `web/dist/`） | [WebUI](.agents/guides/webui.md) |
-| UI 通用接口、线协议契约（v2）、事件桥、任何消费端接入 | `crates/protium-core/src/protocol.rs`、`crates/protium-core/src/bridge.rs`、`web/ts/`（生成类型） | [UI Contract](.agents/guides/ui-contract.md)；仅改线协议/事件桥/接新消费端时读 |
-| Provider、模型、密钥、协议、压缩恢复 | `crates/protium-core/src/config.rs`、`crates/protium-core/src/agent.rs`、`crates/protium-core/src/provider/openai.rs` | [Provider](.agents/guides/provider.md) |
-| 子 Agent、审批、取消、集群停滞 | `crates/protium-core/src/agent.rs`、`crates/1h-agent-web/src/server.rs` | [Cluster](.agents/guides/cluster.md) |
-| 工具、路径、SSRF、外部进程 | `crates/protium-core/src/tools/`、`crates/protium-core/src/security.rs` | [Tools](.agents/guides/tools.md) |
-| 会话、分支、迁移、持久化 | `crates/protium-core/src/storage.rs`、`crates/protium-core/src/session.rs` | [Storage](.agents/guides/storage.md)；涉及 Provider 状态时再读 Provider |
-| 配置上限、容量归一化、新增配置键 | `crates/protium-core/src/config.rs` 的 `Config::load` clamp 区、`config/config.example.toml` | 无；同步默认值与 `defaults_are_bounded` 类测试 |
+| UI 通用接口、线协议契约（v2）、事件桥、任何消费端接入 | `protium-core (Git dependency): src/protocol.rs`、`protium-core (Git dependency): src/bridge.rs`、`web/ts/`（生成类型） | [UI Contract](.agents/guides/ui-contract.md)；仅改线协议/事件桥/接新消费端时读 |
+| Provider、模型、密钥、协议、压缩恢复 | `protium-core (Git dependency): src/config.rs`、`protium-core (Git dependency): src/agent.rs`、`protium-core (Git dependency): src/provider/openai.rs` | [Provider](.agents/guides/provider.md) |
+| 子 Agent、审批、取消、集群停滞 | `protium-core (Git dependency): src/agent.rs`、`crates/1h-agent-web/src/server.rs` | [Cluster](.agents/guides/cluster.md) |
+| 工具、路径、SSRF、外部进程 | `protium-core (Git dependency): src/tools/`、`protium-core (Git dependency): src/security.rs` | [Tools](.agents/guides/tools.md) |
+| 会话、分支、迁移、持久化 | `protium-core (Git dependency): src/storage.rs`、`protium-core (Git dependency): src/session.rs` | [Storage](.agents/guides/storage.md)；涉及 Provider 状态时再读 Provider |
+| 配置上限、容量归一化、新增配置键 | `protium-core (Git dependency): src/config.rs` 的 `Config::load` clamp 区、`config/config.example.toml` | 无；同步默认值与 `defaults_are_bounded` 类测试 |
 | CI、版本、安装包、tag | `.github/workflows/`、`Cargo.toml` | [Release](.agents/guides/release.md) |
 
 指南与源码不一致时以源码为准，并在同一改动中更新该指南；一个事实只归属根文档或一个专题。

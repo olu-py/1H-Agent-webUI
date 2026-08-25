@@ -53,6 +53,8 @@ struct InputBody {
 #[derive(Deserialize)]
 struct ApprovalBody {
     accept: bool,
+    #[serde(default)]
+    allow_session: bool,
 }
 
 /// Body of `POST /api/v2/config/provider` (non-secret fields only).
@@ -204,7 +206,7 @@ async fn post_input(
     }
     let session_id = (!id.is_empty() && id != "new").then_some(id);
     match state.handle.submit(session_id, &body.0.text).await {
-        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Ok(_request_seq) => StatusCode::ACCEPTED.into_response(),
         Err(error) => api_error_response(error),
     }
 }
@@ -235,7 +237,7 @@ async fn post_cancel(
     if !authorized(&state, &headers) {
         return unauthorized();
     }
-    match state.handle.cancel(&id).await {
+    match state.handle.cancel(&id, None).await {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
         Err(error) => api_error_response(error),
     }
@@ -267,7 +269,11 @@ async fn post_approval(
     if !authorized(&state, &headers) {
         return unauthorized();
     }
-    match state.handle.approve(&approval_id, body.0.accept).await {
+    match state
+        .handle
+        .approve(&approval_id, body.0.accept, body.0.allow_session)
+        .await
+    {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
         Err(error) => api_error_response(error),
     }

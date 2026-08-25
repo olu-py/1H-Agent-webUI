@@ -6,8 +6,8 @@
 
 ## 入口
 
-- `crates/protium-core/src/storage.rs`：`from_connection`（建表 + `ensure_column` 兼容旧库 + `backfill_turns`）、全部读写方法、`load_message_page` 游标分页与 `idx_messages_session_hidden_id` 索引。
-- `crates/protium-core/src/app.rs`：undo/redo/delete/fork 命令与 `reload_current_session` 的存储交互。
+- `protium-core (Git dependency): src/storage.rs`：`from_connection`（建表 + `ensure_column` 兼容旧库 + `backfill_turns`）、全部读写方法、`load_message_page` 游标分页与 `idx_messages_session_hidden_id` 索引。
+- `protium-core (Git dependency): src/app.rs`：undo/redo/delete/fork 命令与 `reload_current_session` 的存储交互。
 
 ## 不变量
 

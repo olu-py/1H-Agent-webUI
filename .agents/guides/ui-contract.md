@@ -8,7 +8,7 @@
 
 ## 入口
 
-- 核心：`crates/protium-core/src/protocol.rs`（Envelope/Event/MessageDto/PROTOCOL_VERSION）、`service.rs`（AppHandle/REST 语义）、`bridge.rs`（EventBridge/游标/replay/resync）。
+- 核心：`protium-core (Git dependency): src/protocol.rs`（Envelope/Event/MessageDto/PROTOCOL_VERSION）、`service.rs`（AppHandle/REST 语义）、`bridge.rs`（EventBridge/游标/replay/resync）。
 - 前端类型：`web/ts/`（ts-rs 生成，CI 漂移检查）；Web 服务端：`crates/1h-agent-web/src/server.rs`。
 
 ## 契约

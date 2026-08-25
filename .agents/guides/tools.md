@@ -6,10 +6,10 @@
 
 ## 入口
 
-- `crates/protium-core/src/tools/mod.rs`：`definitions()`、`execute()`、`policy()` 与只读模式拦截。
-- `crates/protium-core/src/tools/filesystem.rs`、`git.rs`、`process.rs`、`web.rs`：各领域实现。
-- `crates/protium-core/src/security.rs`：`Workspace` 解析、`classify_tool`。
-- 下游接入：`crates/protium-core/src/agent.rs`（`WRITE_TOOLS`/角色 infer）、`crates/protium-core/src/prompt.rs`、展示层（`crates/protium-core/src/protocol.rs` 的 `ToolCall` dto + `web/`，翻译/风险/摘要）。
+- `protium-core (Git dependency): src/tools/mod.rs`：`definitions()`、`execute()`、`policy()` 与只读模式拦截。
+- `protium-core (Git dependency): src/tools/filesystem.rs`、`git.rs`、`process.rs`、`web.rs`：各领域实现。
+- `protium-core (Git dependency): src/security.rs`：`Workspace` 解析、`classify_tool`。
+- 下游接入：`protium-core (Git dependency): src/agent.rs`（`WRITE_TOOLS`/角色 infer）、`protium-core (Git dependency): src/prompt.rs`、展示层（`protium-core (Git dependency): src/protocol.rs` 的 `ToolCall` dto + `web/`，翻译/风险/摘要）。
 
 ## 不变量
 

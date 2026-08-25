@@ -6,10 +6,10 @@
 
 ## 入口
 
-- `crates/protium-core/src/service.rs`：`Engine`（激活/容量回收/`Command::Delete`/事件桥接入/shutdown 收尾）、`AppService::start`、`AppHandle` Drop 释放。
-- `crates/protium-core/src/app.rs`：`App` 全局状态、会话切换与命令入口。
-- `crates/protium-core/src/session.rs`：`SessionRuntime` 的 `shutdown`/`idle`/`parked_at`、终态事件复位。
-- `crates/protium-core/src/storage.rs`：`delete_session` 返回被删子树全部 id。
+- `protium-core (Git dependency): src/service.rs`：`Engine`（激活/容量回收/`Command::Delete`/事件桥接入/shutdown 收尾）、`AppService::start`、`AppHandle` Drop 释放。
+- `protium-core (Git dependency): src/app.rs`：`App` 全局状态、会话切换与命令入口。
+- `protium-core (Git dependency): src/session.rs`：`SessionRuntime` 的 `shutdown`/`idle`/`parked_at`、终态事件复位。
+- `protium-core (Git dependency): src/storage.rs`：`delete_session` 返回被删子树全部 id。
 
 ## 不变量
 

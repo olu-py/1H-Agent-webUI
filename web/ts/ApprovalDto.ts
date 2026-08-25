@@ -5,4 +5,4 @@ import type { ToolCall } from "./ToolCall";
  * A pending approval exposed to the frontend. `approval_id` is echoed back on
  * decision; the server-side oneshot sender is never serialized.
  */
-export type ApprovalDto = { approval_id: string, session_id: string, call: ToolCall, reason: string, source_session_id: string | null, source_title: string | null, created_at_ms: number, };
+export type ApprovalDto = { approval_id: string, session_id: string, call: ToolCall, reason: string, source_session_id: string | null, source_title: string | null, created_at_ms: bigint, };
