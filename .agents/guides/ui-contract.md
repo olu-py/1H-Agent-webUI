@@ -26,6 +26,7 @@
 - 只有 transport 触网络、view 触 DOM；任何消费端不得另起事件/命令通路。
 - Approval oneshot sender 不可序列化：DTO 只带 approval_id；超时按拒绝并发终态。
 - ts-rs 类型与 core 同源：core 先提交 `bindings/`，本仓库定向更新依赖后运行 `bash scripts/core-bindings.sh sync`；不得手改 `web/ts/`。
+- 联调可用 Cargo path patch + `PROTIUM_CORE_PATH` 同步本地 bindings；交付时必须取消两项覆盖，从锁定 Git checkout 重新 sync/check。
 
 ## 诊断
 
@@ -40,3 +41,4 @@
 - 分层：rg 查 `src/state`、`src/actions`、`src/hooks` 无 fetch/EventSource；`src/components` 无 fetch。
 - 前端单测：`cd web && pnpm test`（reducer 全事件变体、未知事件兼容、Transport 契约、重连/resync、缓存淘汰）。
 - core 更新：`cargo update -p protium-core` -> `core-bindings.sh sync` -> `core-bindings.sh check` -> Rust/前端测试；文档跑 `check-agent-docs.sh` 与 `git diff --check`。
+- 最终检查 metadata source 与 `Cargo.lock` 均为预期 Git SHA，环境中无 `PROTIUM_CORE_PATH`，所有验证使用 `--locked`。

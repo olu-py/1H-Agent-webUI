@@ -24,7 +24,7 @@ migration: 多界面低耦合改造（Cargo workspace + protium-core + v2 协议
 3. 从 `crates/1h-agent-web/src/main.rs -> server::run` 进入；UI 无关接口在独立 `1H-Agent-core` 仓库的 `src/service.rs`、`protocol.rs`、`bridge.rs`。
 4. 修改事件、配置或持久化类型时，覆盖所有构造点、match、序列化、恢复和测试。
 5. 先跑最小目标测试；跨模块行为才升级到完整 Clippy 和测试。
-6. core 变更先在独立仓库完成并 push；本仓库只定向更新 Git 依赖、同步 bindings、适配并提交锁文件，禁止编辑 Cargo checkout。
+6. core/WebUI 联调先用命令行本地 path patch 和 `PROTIUM_CORE_PATH`；交付前必须移除覆盖、先完成并 push core，再定向更新 Git 锁文件、不带覆盖同步 bindings 并 `--locked` 复测；禁止编辑 Cargo checkout。
 
 ## 任务路由
 

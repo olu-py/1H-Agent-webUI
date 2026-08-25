@@ -16,27 +16,41 @@ esac
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
-if ! command -v perl >/dev/null 2>&1; then
-  printf 'core-bindings.sh requires perl to read cargo metadata\n' >&2
-  exit 1
-fi
+core_override="${PROTIUM_CORE_PATH:-}"
+core_manifest=""
+if [[ -n "$core_override" ]]; then
+  if [[ ! -f "$core_override/Cargo.toml" ]]; then
+    printf 'PROTIUM_CORE_PATH does not contain Cargo.toml: %s\n' "$core_override" >&2
+    exit 1
+  fi
+  core_manifest="$(cd "$core_override" && pwd)/Cargo.toml"
+else
+  if ! command -v perl >/dev/null 2>&1; then
+    printf 'core-bindings.sh requires perl to read cargo metadata\n' >&2
+    exit 1
+  fi
 
-metadata="$(cargo metadata --locked --format-version 1 2>/dev/null || true)"
-core_manifest="$(printf '%s' "$metadata" \
-  | perl -ne 'if (/\{"name":"protium-core","version":.*?"source":"git\\+.*?"manifest_path":"([^"]+)"/) { print "$1\n"; exit }')"
+  metadata="$(cargo metadata --locked --format-version 1 2>/dev/null || true)"
+  core_manifest="$(printf '%s' "$metadata" \
+    | perl -ne 'if (/\{"name":"protium-core","version":.*?"source":"git\\+.*?"manifest_path":"([^"]+)"/) { print "$1\n"; exit }')"
 
-if [[ -z "$core_manifest" ]]; then
-  cargo_home="${CARGO_HOME:-$HOME/.cargo}"
-  while IFS= read -r manifest; do
-    if grep -q '^name = "protium-core"' "$manifest"; then
-      core_manifest="$manifest"
-      break
-    fi
-  done < <(find "$cargo_home/git/checkouts" -type f -name Cargo.toml 2>/dev/null)
+  if [[ -z "$core_manifest" ]]; then
+    cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+    while IFS= read -r manifest; do
+      if grep -q '^name = "protium-core"' "$manifest"; then
+        core_manifest="$manifest"
+        break
+      fi
+    done < <(find "$cargo_home/git/checkouts" -type f -name Cargo.toml 2>/dev/null)
+  fi
 fi
 
 if [[ -z "$core_manifest" ]]; then
   printf 'could not resolve the locked Git protium-core checkout\n' >&2
+  exit 1
+fi
+if ! grep -q '^name = "protium-core"' "$core_manifest"; then
+  printf 'resolved manifest is not protium-core: %s\n' "$core_manifest" >&2
   exit 1
 fi
 

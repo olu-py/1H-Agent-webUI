@@ -39,7 +39,7 @@ HTTP/SSE 服务面、v2 事件序列化、审批待决表、静态前端资源�
 ## 验证
 
 - 迭代过滤器：`service::tests`、`protocol`、`bridge::tests`、`approval_timeout`。
-- core/绑定：定向更新后运行 `bash scripts/core-bindings.sh sync` 与 `check`；前端运行 `cd web && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && pnpm build`，提交 `web/ts/` 与必要的 `web/dist/`。
+- core/绑定：联调可用 path patch 与 `PROTIUM_CORE_PATH`；交付时取消覆盖，定向更新后从锁定 Git checkout 运行 `sync`/`check`。前端运行 `cd web && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && pnpm build`。
 - 新端点最少覆盖：成功路径、未知 session 404、超限 4xx、取消后终态可观察。
 - 手工冒烟：`curl -N localhost:7788/api/v2/events?cursor=0` + 浏览器完整流程（新建/恢复会话、流式、审批、取消、多标签同会话）。
 - HTTP 面或协议变更升级到完整测试和 Clippy；发布前跑 Release 专题矩阵。

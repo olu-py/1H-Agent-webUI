@@ -61,6 +61,21 @@ cargo build --release --locked --package protium-web --bin 1h-agent-web
 
 这一节只面向维护者。普通构建不会自动追踪 core 的 `main`：`Cargo.lock` 锁定具体 commit，只有提交新的锁文件后，其他用户才会获得新版 core。
 
+### 本地边改边测
+
+将 `1H-Agent-webUI` 与 `protium-core` 放在同一父目录后，可在 core 尚未 push 时临时覆盖 Rust Git 依赖，并从本地 core 同步协议类型：
+
+```bash
+cargo --config \
+  'patch."https://github.com/olu-py/1H-Agent-core.git".protium-core.path="../protium-core"' \
+  test --all-features
+PROTIUM_CORE_PATH=../protium-core bash scripts/core-bindings.sh sync
+```
+
+不要改受跟踪的 `Cargo.toml`。Cargo 可能临时改写 `Cargo.lock`，本地同步也会修改 `web/ts/`；这些结果只用于联调，在 core 尚未交付时不得作为正式 Git 依赖更新提交。若相关文件开始时已有用户改动，Agent 必须先保护原差异。
+
+### 正式更新与交付
+
 先在独立的 [core 仓库](https://github.com/olu-py/1H-Agent-core) 完成测试、bindings、提交并 push `main`，再在本仓库运行：
 
 ```bash
@@ -75,7 +90,7 @@ pnpm test
 pnpm build
 ```
 
-协议绑定由 core 仓库维护；同步脚本从 `Cargo.lock` 对应的 Git checkout 复制 `bindings/*.ts` 到 `web/ts/`。完成 Rust/TypeScript 适配后，在本仓库单独提交 `Cargo.lock`、`web/ts/` 和前端变化产生的 `web/dist/`。普通 `cargo update` 会更新其他依赖，不适合仅升级 core。
+正式同步不得设置 `PROTIUM_CORE_PATH`：脚本必须从 `Cargo.lock` 对应的 Git checkout 复制 `bindings/*.ts` 到 `web/ts/`。完成 Rust/TypeScript 适配后，在本仓库单独提交 `Cargo.lock`、`web/ts/` 和前端变化产生的 `web/dist/`。普通 `cargo update` 会更新其他依赖，不适合仅升级 core。
 
 不要修改 Cargo 缓存中的 checkout，也不要把 core 源码复制回本仓库。core、TUI、WebUI 的版本号、tag、commit 和 push 互相独立。
 

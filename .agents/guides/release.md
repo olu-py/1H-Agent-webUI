@@ -14,6 +14,7 @@
 
 - Cargo manifest/lock 版本一致；tag 是同版本的新 annotated `vX.Y.Z`，不得移动或复用成功 tag。
 - core、TUI、WebUI 版本号和 tag 独立；兼容性由锁定 core commit、协议版本、bindings check 和适配器测试确认。
+- 本地联调允许 path patch/`PROTIUM_CORE_PATH`；发布前必须移除覆盖，禁止提交 path 锁文件或来自未交付 core 的 bindings。
 - core 必须先 push；本仓库再定向更新 core、同步 bindings、构建并提交 `web/dist`，WebUI release 不隐含发布其他仓库。
 - 先提交并推送 main、核对远端 SHA，再建 tag；notes 文件必须是 `.github/release-notes/vX.Y.Z.md`。
 - 权威流程：版本校验 -> 三平台验证 -> 四目标归档和安装包 -> checksums -> GitHub Release。
@@ -28,6 +29,7 @@
 | workflow 未启动 | 远端 tag -> `v*` 匹配 -> tag 指向/notes/版本提交 |
 | version 失败 | tag 去 `v` -> `protium-web` metadata -> lockfile version |
 | core/bindings 不一致 | `Cargo.lock` core SHA -> `core-bindings.sh check` -> `web/ts`/适配器 |
+| 发布仍引用本地 core | Cargo patch/env -> metadata source -> lockfile Git SHA -> 无覆盖 bindings check |
 | publish 失败 | build/installers artifacts -> notes -> checksums -> 权限 |
 | 单平台失败 | runner shell -> 路径语义 -> 平台专用依赖/命令 |
 
