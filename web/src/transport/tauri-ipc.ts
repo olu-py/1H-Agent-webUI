@@ -2,6 +2,8 @@ import type {
   AppSnapshotV2,
   Envelope,
   MessagePage,
+  ProviderSetOptions,
+  ProviderSettingsDto,
 } from "../types";
 import type { Subscription, Transport } from "./transport";
 
@@ -45,8 +47,12 @@ export class TauriIpcTransport implements Transport {
     return this.invoke("activateSession", { sessionId });
   }
 
-  setProvider(preset: string, model: string): Promise<void> {
-    return this.invoke("setProvider", { preset, model });
+  providerSettings(): Promise<ProviderSettingsDto> {
+    return this.invoke("providerSettings");
+  }
+
+  setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void> {
+    return this.invoke("setProvider", { preset, model, options });
   }
 
   subscribe(_fromCursor: number, _onEvent: (envelope: Envelope) => void): Subscription {

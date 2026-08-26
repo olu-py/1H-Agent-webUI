@@ -57,11 +57,23 @@ struct ApprovalBody {
     allow_session: bool,
 }
 
-/// Body of `POST /api/v2/config/provider` (non-secret fields only).
+/// Body of `POST /api/v2/config/provider` (the settings-screen edit).
+///
+/// `api_key` is optional: when present (non-empty) it is stored in the OS
+/// keyring for `preset` *before* the profile is applied, then dropped - it is
+/// never serialized into a response, log line, or the config file. All other
+/// fields are non-secret.
 #[derive(Deserialize)]
 struct ProviderConfigBody {
     preset: String,
     model: String,
+    #[serde(default)]
+    base_url: Option<String>,
+    /// `ProviderKind` wire tag ("responses" / "chat_completions").
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    api_key: Option<String>,
 }
 
 /// Starts the WebUI server: builds the core service, binds the listener, and
@@ -109,7 +121,10 @@ fn build_router(state: ServerState) -> Router {
         .route("/api/v2/sessions/{id}/cancel", post(post_cancel))
         .route("/api/v2/sessions/{id}/activate", post(post_activate))
         .route("/api/v2/approvals/{approval_id}", post(post_approval))
-        .route("/api/v2/config/provider", post(post_provider_config))
+        .route(
+            "/api/v2/config/provider",
+            get(get_provider_settings).post(post_provider_config),
+        )
         .route("/api/v2/events", get(sse_handler))
         .route("/", get(index_handler))
         .route("/{*path}", get(static_handler))
@@ -279,8 +294,24 @@ async fn post_approval(
     }
 }
 
-/// `POST /api/v2/config/provider` — non-secret provider settings (preset name
-/// and model). API keys are never accepted here; they live in the OS keyring.
+/// `GET /api/v2/config/provider` - the provider settings view: the active
+/// profile, saved per-preset profiles, and the presets with a currently
+/// resolvable API key. The keys themselves are never included.
+async fn get_provider_settings(State(state): State<ServerState>, headers: HeaderMap) -> Response {
+    if !authorized(&state, &headers) {
+        return unauthorized();
+    }
+    match state.handle.provider_settings().await {
+        Ok(settings) => axum::Json(settings).into_response(),
+        Err(error) => api_error_response(error),
+    }
+}
+
+/// `POST /api/v2/config/provider` - the settings-screen edit: applies `model`
+/// plus the optional `base_url` and protocol to `preset`'s profile (a fresh
+/// preset template when nothing is saved). An optional `api_key` is stored in
+/// the OS keyring first so the rebuilt runner picks it up immediately; the key
+/// itself never reaches the core, a response, a log, or the config file.
 async fn post_provider_config(
     State(state): State<ServerState>,
     headers: HeaderMap,
@@ -289,12 +320,53 @@ async fn post_provider_config(
     if !authorized(&state, &headers) {
         return unauthorized();
     }
+    let Some(preset) = protium_core::config::ProviderPreset::parse(&body.0.preset) else {
+        return api_error_response(ApiError::bad_request(format!(
+            "unknown provider preset {}",
+            body.0.preset
+        )));
+    };
+    let kind = match body.0.kind.as_deref() {
+        None => None,
+        Some(tag) => match protium_core::config::ProviderKind::parse_wire_tag(tag) {
+            Some(kind) => Some(kind),
+            None => {
+                return api_error_response(ApiError::bad_request(format!(
+                    "unknown provider kind {tag}"
+                )));
+            }
+        },
+    };
+    // Store the key before applying the profile so `set_provider_profile`'s
+    // secret refresh resolves it from the cache. A keyring write failure does
+    // not abort the edit - `store_api_key_cached` keeps the key usable for
+    // this run and the response reports the degraded persistence.
+    let mut key_warning: Option<String> = None;
+    if let Some(api_key) = body.0.api_key.as_deref().map(str::trim)
+        && !api_key.is_empty()
+    {
+        if let Err(error) = protium_core::secrets::store_api_key_cached(preset, api_key) {
+            tracing::warn!(
+                "keyring write failed for {}; the key applies to this run only",
+                preset.key_id()
+            );
+            key_warning = Some(format!("密钥已生效（本次运行），但写入系统钥匙串失败：{error}"));
+        }
+    }
     match state
         .handle
-        .set_provider(&body.0.preset, &body.0.model)
+        .set_provider_profile(preset, &body.0.model, body.0.base_url.as_deref(), kind)
         .await
     {
-        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Ok(()) if key_warning.is_none() => StatusCode::ACCEPTED.into_response(),
+        Ok(()) => (
+            StatusCode::ACCEPTED,
+            axum::Json(serde_json::json!({
+                "kind": "internal",
+                "message": key_warning.unwrap_or_default(),
+            })),
+        )
+            .into_response(),
         Err(error) => api_error_response(error),
     }
 }

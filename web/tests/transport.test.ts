@@ -30,6 +30,8 @@ const snapshot: AppSnapshotV2 = {
   mode: "build",
   approval: null,
   todos: [],
+  context: null,
+  assistant_partial: null,
 };
 
 afterEach(() => {
@@ -78,6 +80,71 @@ describe("HttpSseTransport REST contract", () => {
     expect(error.status).toBe(404);
     expect(error.kind).toBe("not_found");
     expect(error.message).toBe("nope");
+  });
+
+  it("posts the approval decision with allow_session in the body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}, 202));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const transport = new HttpSseTransport();
+    await transport.approve("a1", true, true);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v2/approvals/a1");
+    expect(JSON.parse(String(init.body))).toEqual({ accept: true, allow_session: true });
+    await transport.approve("a2", false);
+    const [, init2] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(JSON.parse(String(init2.body))).toEqual({ accept: false, allow_session: false });
+  });
+
+  it("gets the provider settings view from /api/v2/config/provider", async () => {
+    const settings = {
+      active: { preset: "deepseek", kind: "responses", model: "deepseek-v4-flash", base_url: "https://api.deepseek.com" },
+      saved: [],
+      connected: ["deepseek"],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(settings));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const transport = new HttpSseTransport();
+    await expect(transport.providerSettings()).resolves.toEqual(settings);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v2/config/provider");
+    expect(init.method).toBeUndefined();
+  });
+
+  it("posts the provider edit with snake_case fields and omits an empty api_key", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}, 202));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const transport = new HttpSseTransport();
+    await transport.setProvider("deepseek", "deepseek-v4-pro", {
+      baseUrl: "https://proxy.example.com",
+      kind: "chat_completions",
+      apiKey: "  ",
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v2/config/provider");
+    expect(init.method).toBe("POST");
+    // An all-whitespace key must not be transmitted at all.
+    expect(JSON.parse(String(init.body))).toEqual({
+      preset: "deepseek",
+      model: "deepseek-v4-pro",
+      base_url: "https://proxy.example.com",
+      kind: "chat_completions",
+      api_key: undefined,
+    });
+  });
+
+  it("sends the api_key only when non-empty", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}, 202));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const transport = new HttpSseTransport();
+    await transport.setProvider("openai", "gpt-5", { apiKey: "sk-secret" });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      preset: "openai",
+      model: "gpt-5",
+      base_url: undefined,
+      kind: undefined,
+      api_key: "sk-secret",
+    });
   });
 });
 

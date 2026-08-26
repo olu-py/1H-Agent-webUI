@@ -1,4 +1,5 @@
-import type { Envelope } from "./types";
+import { modeCommand } from "./lib/modes";
+import type { Envelope, ProviderSetOptions } from "./types";
 import type { Transport, Subscription } from "./transport/transport";
 import type { Store } from "./state/store";
 import { PAGE_SIZE } from "./state/reducer";
@@ -11,12 +12,20 @@ export interface Actions {
    * snapshot's `event_cursor`. Re-runs the dirty-flag effect loop after each
    * dispatch. */
   init(): Promise<void>;
-  submit(text: string): Promise<void>;
+  /** Submits a message. `mode` is an optional *pending* mode preference used
+   * only when the snapshot does not already carry it (e.g. the first message
+   * that lazily creates a session): it is applied via a single `/${mode}`
+   * command after the snapshot converges, never guessed locally. */
+  submit(text: string, mode?: string): Promise<void>;
   executeCommand(text: string): Promise<void>;
-  approve(approvalId: string, accept: boolean): Promise<void>;
+  /** Resolves a pending approval; `allowSession` permits the tool for the rest
+   * of the session. */
+  approve(approvalId: string, accept: boolean, allowSession?: boolean): Promise<void>;
   cancel(): Promise<void>;
   activate(sessionId: string): Promise<void>;
-  setProvider(preset: string, model: string): Promise<void>;
+  setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void>;
+  /** Fetches the provider settings view into the store (settings dialog). */
+  loadProviderSettings(): Promise<void>;
   /** Fetches the next (older) message page and prepends it to the cache. */
   loadOlder(): Promise<void>;
   refreshSnapshot(): Promise<void>;
@@ -103,7 +112,7 @@ export function createActions(transport: Transport, store: Store): Actions {
     }
   };
 
-  const submit = async (text: string): Promise<void> => {
+  const submit = async (text: string, mode?: string): Promise<void> => {
     store.dispatch({ type: "clearError" });
     try {
       const { activeSession } = store.getState();
@@ -113,6 +122,14 @@ export function createActions(transport: Transport, store: Store): Actions {
       await refreshSnapshot();
       if (store.getState().transcriptDirty) {
         await refreshTranscript();
+      }
+      // Apply the pending mode only when it differs from the authoritative
+      // snapshot — one command, exactly once.
+      if (mode) {
+        const snap = store.getState();
+        if (snap.mode !== mode) {
+          await executeCommand(modeCommand(mode));
+        }
       }
     } catch (error) {
       store.dispatch({ type: "error", message: errorMessage(error) });
@@ -135,9 +152,9 @@ export function createActions(transport: Transport, store: Store): Actions {
     }
   };
 
-  const approve = async (approvalId: string, accept: boolean): Promise<void> => {
+  const approve = async (approvalId: string, accept: boolean, allowSession?: boolean): Promise<void> => {
     try {
-      await transport.approve(approvalId, accept);
+      await transport.approve(approvalId, accept, allowSession);
     } catch (error) {
       store.dispatch({ type: "error", message: errorMessage(error) });
     }
@@ -165,10 +182,32 @@ export function createActions(transport: Transport, store: Store): Actions {
     }
   };
 
-  const setProvider = async (preset: string, model: string): Promise<void> => {
+  const setProvider = async (
+    preset: string,
+    model: string,
+    options?: ProviderSetOptions,
+  ): Promise<void> => {
     try {
-      await transport.setProvider(preset, model);
+      await transport.setProvider(preset, model, options);
       await refreshSnapshot();
+      // Refresh the settings view too: `connected` may have changed (a newly
+      // stored key) and the dialog reads from this slice. A failure here must
+      // not look like a failed apply - the edit itself succeeded.
+      try {
+        const settings = await transport.providerSettings();
+        store.dispatch({ type: "providerSettings", settings });
+      } catch {
+        // best-effort: the next dialog open refetches
+      }
+    } catch (error) {
+      store.dispatch({ type: "error", message: errorMessage(error) });
+    }
+  };
+
+  const loadProviderSettings = async (): Promise<void> => {
+    try {
+      const settings = await transport.providerSettings();
+      store.dispatch({ type: "providerSettings", settings });
     } catch (error) {
       store.dispatch({ type: "error", message: errorMessage(error) });
     }
@@ -201,6 +240,7 @@ export function createActions(transport: Transport, store: Store): Actions {
     cancel,
     activate,
     setProvider,
+    loadProviderSettings,
     loadOlder,
     refreshSnapshot,
     refreshTranscript,

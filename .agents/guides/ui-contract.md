@@ -14,6 +14,7 @@
 ## 契约
 
 - 线协议 v2：REST 端点全在 `/api/v2`（state/messages/input/commands/cancel/activate/approvals/provider/events），语义见 `build_router`；快照必含 protocol_version、event_cursor、active_session、sessions、provider/model/mode、approval、todos。
+- Provider 端点：`GET /api/v2/config/provider` 返回 `ProviderSettingsDto`（active/saved/connected，字段全非密钥，`preset` 为 key_id、`kind` 为 wire tag）；`POST` 接受 `preset`+`model`+可选 `base_url`/`kind`/`api_key`，密钥仅写系统钥匙串（写失败降级为本运行有效并回 JSON 警告），永不回显/入日志/入 TOML；`connected` 为缓存级解析（启动解锁、env 预载、本次运行写入），缺失≠从未配置。
 - 事件 = `Envelope`（全局单调 cursor + session_id + flattened Event，type snake_case）；消息页 = `MessagePage`（messages、next_before、has_more，游标分页）。必处理：text_delta/reasoning_delta、tool_*、approval(_resolved)、completed/failed/cancelled、todo_updated、local_command_finished、sessions_changed、child_session_progress、transcript_invalidated；未知 type 静默忽略。
 - 浏览器从快照 `event_cursor` 建立 SSE；服务端桥接 replay + live，客户端按 cursor 去重。进程内消费端使用 core 的原子 `subscribe_from`；`ResyncRequired` 时丢弃本地事件缓存、重取快照与消息页。
 - 前端分层：transport 唯一 fetch/EventSource/Tauri IPC、错误只走 onError；store 纯状态（`state/reducer.ts` reduce + `state/store.ts` useSyncExternalStore，PROTOCOL_VERSION 检查，未知 type 静默忽略）；actions 提供语义 action 集（`actions.ts`，只调 Transport 并回灌 store）；view 只调 actions、禁止直连 transport。消费端 Transport 接口见 `web/src/transport/transport.ts`。

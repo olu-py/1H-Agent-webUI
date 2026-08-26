@@ -3,6 +3,8 @@ import type {
   AppSnapshotV2,
   Envelope,
   MessagePage,
+  ProviderSetOptions,
+  ProviderSettingsDto,
 } from "../types";
 import type { Subscription, Transport } from "./transport";
 
@@ -96,8 +98,11 @@ export class HttpSseTransport implements Transport {
     return this.withBody(`/api/v2/sessions/${encodeURIComponent(id)}/commands`, { text });
   }
 
-  approve(approvalId: string, accept: boolean): Promise<void> {
-    return this.withBody(`/api/v2/approvals/${encodeURIComponent(approvalId)}`, { accept });
+  approve(approvalId: string, accept: boolean, allowSession?: boolean): Promise<void> {
+    return this.withBody(`/api/v2/approvals/${encodeURIComponent(approvalId)}`, {
+      accept,
+      allow_session: allowSession ?? false,
+    });
   }
 
   cancel(sessionId: string): Promise<void> {
@@ -108,8 +113,20 @@ export class HttpSseTransport implements Transport {
     return this.post(`/api/v2/sessions/${encodeURIComponent(sessionId)}/activate`);
   }
 
-  setProvider(preset: string, model: string): Promise<void> {
-    return this.withBody("/api/v2/config/provider", { preset, model });
+  providerSettings(): Promise<ProviderSettingsDto> {
+    return this.json("/api/v2/config/provider");
+  }
+
+  setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void> {
+    return this.withBody("/api/v2/config/provider", {
+      preset,
+      model,
+      base_url: options?.baseUrl,
+      kind: options?.kind,
+      // Send only when non-empty: the key is write-only and must never be
+      // needlessly transmitted (let alone stored or echoed).
+      api_key: options?.apiKey?.trim() ? options.apiKey : undefined,
+    });
   }
 
   private withBody(path: string, body: unknown): Promise<void> {

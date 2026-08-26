@@ -30,6 +30,22 @@ function isFenceLine(line: string): boolean {
   return /^```/.test(line.trim());
 }
 
+/** Renders one fenced code block with a language label and copy button. The
+ * copy button is wired by event delegation (see MessageList) because the block
+ * is injected via `dangerouslySetInnerHTML`. */
+function codeBlock(lang: string, code: string): string {
+  const safeLang = escapeHtml(lang);
+  return (
+    `<pre class="code-block" data-lang="${safeLang}">` +
+    `<div class="code-head">` +
+    `<span class="code-lang">${safeLang || "code"}</span>` +
+    `<button type="button" class="code-copy" data-copy>复制</button>` +
+    `</div>` +
+    `<code class="code-body">${escapeHtml(code)}</code>` +
+    `</pre>`
+  );
+}
+
 /** Splits lines into fenced `<pre>` blocks and plain lines. */
 function renderFenced(lines: string[]): string[] {
   const html: string[] = [];
@@ -43,8 +59,7 @@ function renderFenced(lines: string[]): string[] {
         fenceLang = line.trim().slice(3).trim();
         codeBuf = [];
       } else {
-        const lang = fenceLang ? ` class="language-${escapeHtml(fenceLang)}"` : "";
-        html.push(`<pre${lang}><code>${escapeHtml(codeBuf.join("\n"))}</code></pre>`);
+        html.push(codeBlock(fenceLang, codeBuf.join("\n")));
         inFence = false;
       }
     } else if (inFence) {
@@ -54,7 +69,7 @@ function renderFenced(lines: string[]): string[] {
     }
   }
   if (inFence) {
-    html.push(`<pre><code>${escapeHtml(codeBuf.join("\n"))}</code></pre>`);
+    html.push(codeBlock(fenceLang, codeBuf.join("\n")));
   }
   return html;
 }

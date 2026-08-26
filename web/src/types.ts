@@ -12,6 +12,8 @@ import type { Event as CoreEvent } from "../ts/Event";
 import type { MessageDto as CoreMessageDto } from "../ts/MessageDto";
 import type { MessagePage as CoreMessagePage } from "../ts/MessagePage";
 import type { PartialDto as CorePartialDto } from "../ts/PartialDto";
+import type { ProviderProfileDto as CoreProviderProfileDto } from "../ts/ProviderProfileDto";
+import type { ProviderSettingsDto as CoreProviderSettingsDto } from "../ts/ProviderSettingsDto";
 import type { SessionStateDto as CoreSessionStateDto } from "../ts/SessionStateDto";
 import type { TodoDto as CoreTodoDto } from "../ts/TodoDto";
 import type { TodoStatus as CoreTodoStatus } from "../ts/TodoStatus";
@@ -42,6 +44,18 @@ export type MessagePage = JsonNumber<CoreMessagePage>;
 export type ApiError = JsonNumber<CoreApiError>;
 export type ApiErrorKind = JsonNumber<CoreApiErrorKind>;
 export type ToolCall = JsonNumber<CoreToolCall>;
+export type ProviderProfileDto = JsonNumber<CoreProviderProfileDto>;
+export type ProviderSettingsDto = JsonNumber<CoreProviderSettingsDto>;
+
+/** Optional fields of the set-provider POST body (the settings-screen edit). */
+export interface ProviderSetOptions {
+  /** Override the profile's base URL; empty/undefined keeps the current one. */
+  baseUrl?: string;
+  /** ProviderKind wire tag: "responses" | "chat_completions". */
+  kind?: string;
+  /** Write-only: stored in the OS keyring, never echoed back. */
+  apiKey?: string;
+}
 
 /**
  * The flattened event payload of an `Envelope` — the discriminated union of

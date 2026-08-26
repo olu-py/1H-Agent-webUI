@@ -11,7 +11,7 @@ runtime: 单个 Rust/Tokio 进程，内嵌 HTTP 服务 + 前端静态资源；SQ
 authority: 源码 > config/config.example.toml > .github/workflows > 本文件 > 专题指南
 scope: WebUI（REST/SSE + React 静态前端）、模型流、受控工具、多会话、AI 集群、跨平台发布
 excluded: 运行时 Node/Electron/捆绑 Chromium、动态插件、图片和语音能力
-migration: 多界面低耦合改造（Cargo workspace + protium-core + v2 协议）见 PLAN.md；WebUI 迁移细节见 design/webui-migration.md
+migration: 多界面低耦合改造已完成并归档（design/webui-migration.md）；进行中的 WebUI 视觉重构与交互统一计划见 PLAN.md
 ```
 
 - 三个发布程序运行时均不依赖 Node；构建期允许 pnpm/TypeScript/Vite（`web/`，锁定版本，产物内嵌）。不引入运行时 Node、Electron、捆绑 Chromium、动态插件 ABI 或后台轮询（SSE 是服务端推送，浏览器 EventSource 重连不算轮询）。所有路径、网络、工具、进程、缓存、channel 和输出必须有边界、取消与释放路径。

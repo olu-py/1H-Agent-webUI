@@ -2,6 +2,8 @@ import type {
   AppSnapshotV2,
   Envelope,
   MessagePage,
+  ProviderSetOptions,
+  ProviderSettingsDto,
 } from "../types";
 
 /** Result of an event subscription until the caller unsubscribes. */
@@ -29,14 +31,20 @@ export interface Transport {
   submit(sessionId: string | null, text: string): Promise<void>;
   /** `POST /api/v2/sessions/{id}/commands` */
   executeCommand(sessionId: string | null, text: string): Promise<void>;
-  /** `POST /api/v2/approvals/{approval_id}` */
-  approve(approvalId: string, accept: boolean): Promise<void>;
+  /** `POST /api/v2/approvals/{approval_id}` — `allowSession` permits the tool
+   * for the rest of the session (process-local, not persisted). */
+  approve(approvalId: string, accept: boolean, allowSession?: boolean): Promise<void>;
   /** `POST /api/v2/sessions/{id}/cancel` */
   cancel(sessionId: string): Promise<void>;
   /** `POST /api/v2/sessions/{id}/activate` */
   activateSession(sessionId: string): Promise<void>;
-  /** `POST /api/v2/config/provider` */
-  setProvider(preset: string, model: string): Promise<void>;
+  /** `GET /api/v2/config/provider` - active + saved profiles and connected
+   * presets; never includes API keys. */
+  providerSettings(): Promise<ProviderSettingsDto>;
+  /** `POST /api/v2/config/provider` - applies the settings-screen edit.
+   * `options.apiKey` (when non-empty) is stored in the OS keyring first and
+   * is never echoed back. */
+  setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void>;
   /**
    * Subscribes to the event stream from `fromCursor` (exclusive). The
    * transport reconnects on error/EOF, always resuming from the cursor of the

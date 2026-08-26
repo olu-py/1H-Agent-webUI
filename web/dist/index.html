@@ -4,8 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>1H-Agent</title>
-    <script type="module" crossorigin src="./assets/index-Y7yn32ms.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-DQ3MK_Bv.css">
+    <!-- Theme bootstrap: resolve the stored preference (auto/light/dark) and
+         set <html data-theme> before first paint to avoid a flash. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("1h-theme") || "auto";
+          var theme = stored;
+          if (theme === "auto") {
+            theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          }
+          document.documentElement.dataset.theme = theme;
+        } catch (e) {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-CA1PoA9g.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DkEvp4Bk.css">
   </head>
   <body>
     <div id="root"></div>

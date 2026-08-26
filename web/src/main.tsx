@@ -3,7 +3,12 @@ import { App } from "./App";
 import { createStore } from "./state/store";
 import { createActions } from "./actions";
 import { HttpSseTransport } from "./transport/http-sse";
+import { applyTheme, getThemePreference } from "./lib/theme";
 import "./styles.css";
+
+// Theme bootstrap: apply the stored preference (also handled pre-paint by the
+// inline script in index.html) so React state and the DOM never diverge.
+applyTheme(getThemePreference());
 
 // Transport selection: the browser build always uses HTTP+SSE. The Desktop
 // build swaps this for TauriIpcTransport without touching views/actions.
