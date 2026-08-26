@@ -40,3 +40,4 @@ config.toml
 
 # GUI test evidence (not project source)
 /gui-test-screenshots/
+PLAN.md
