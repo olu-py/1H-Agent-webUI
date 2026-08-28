@@ -87,6 +87,11 @@ export interface UiState {
   todos: TodoDto[];
   /** Context capacity of the active session (from snapshot / context_updated). */
   context: ContextBudgetDto | null;
+  /** Live-estimated tokens streamed since the last authoritative context
+   * refresh (snapshot / context_updated). The meter overlays this on
+   * `context.used_tokens` so it grows during generation instead of only at
+   * round boundaries; it is zeroed at every authoritative anchor. */
+  contextOverlayTokens: number;
   /** Persisted incomplete answer of the active session (survives a restart). */
   assistantPartial: PartialDto | null;
   usage: UsageInfo | null;
@@ -131,6 +136,7 @@ export const initialState: UiState = {
   approval: null,
   todos: [],
   context: null,
+  contextOverlayTokens: 0,
   assistantPartial: null,
   usage: null,
   activity: { kind: "idle", text: "就绪" },
@@ -330,6 +336,18 @@ function findToolIndex(state: UiState, callId: string): number {
   return -1;
 }
 
+/** UTF-8 byte length of a string (browser/node-safe). */
+function utf8Bytes(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/** Estimated token cost of freshly streamed content, mirroring the core's
+ * `estimate_context_tokens` (ceil(bytes / 4), min 1). Used to overlay live
+ * context growth between authoritative `context_updated` anchors. */
+function estimateTokens(text: string): number {
+  return Math.max(1, Math.ceil(utf8Bytes(text) / 4));
+}
+
 export function reduce(state: UiState, action: Action): UiState {
   switch (action.type) {
     case "snapshot": {
@@ -347,6 +365,7 @@ export function reduce(state: UiState, action: Action): UiState {
         approval: s.approval,
         todos: s.todos,
         context: s.context,
+        contextOverlayTokens: 0,
         assistantPartial: s.assistant_partial,
         snapshotDirty: false,
         // Transcript is authoritative from the server for the current session;
@@ -482,7 +501,11 @@ export function reduce(state: UiState, action: Action): UiState {
           );
         case "text_delta":
           return local(
-            (s) => ({ ...appendStream(s, "text", str("delta")), activity: { kind: "generating", text: "正在生成回复" } }),
+            (s) => ({
+              ...appendStream(s, "text", str("delta")),
+              activity: { kind: "generating", text: "正在生成回复" },
+              contextOverlayTokens: s.contextOverlayTokens + estimateTokens(str("delta")),
+            }),
             "正在生成回复",
           );
         case "web_search_started":
@@ -527,6 +550,7 @@ export function reduce(state: UiState, action: Action): UiState {
             content: "",
             createdAt: new Date(0).toISOString(),
           };
+          const toolArgsTokens = estimateTokens(c.name + JSON.stringify(c.arguments ?? ""));
           return local(
             (s) => ({
               ...s,
@@ -534,6 +558,7 @@ export function reduce(state: UiState, action: Action): UiState {
               busy: true,
               status: `正在执行工具：${c.name}`,
               activity: { kind: "tool_run", text: "正在执行工具" },
+              contextOverlayTokens: s.contextOverlayTokens + toolArgsTokens,
               messages: [...dropGeneratingRows(s).messages, toolMsg],
             }),
             `正在执行工具：${c.name}`,
@@ -546,6 +571,7 @@ export function reduce(state: UiState, action: Action): UiState {
           // `tool_started` ever arrived (denied / rejected / duplicate calls) -
           // drop the transient generating row so it cannot linger mid-transcript.
           const cleaned = dropGeneratingRows(base);
+          const resultTokens = estimateTokens(result);
           const index = findToolIndex(cleaned, c.id);
           if (index >= 0) {
             const current = cleaned.messages[index];
@@ -556,6 +582,7 @@ export function reduce(state: UiState, action: Action): UiState {
                 busy: true,
                 status: `工具完成：${c.name}`,
                 activity: { kind: "tool_run", text: "工具执行完成" },
+                contextOverlayTokens: s.contextOverlayTokens + resultTokens,
               }),
               `工具完成：${c.name}`,
             );
@@ -581,6 +608,7 @@ export function reduce(state: UiState, action: Action): UiState {
               busy: true,
               status: `工具完成：${c.name}`,
               activity: { kind: "tool_run", text: "工具执行完成" },
+              contextOverlayTokens: s.contextOverlayTokens + resultTokens,
               messages: [...dropGeneratingRows(s).messages, toolMsg],
             }),
             `工具完成：${c.name}`,
@@ -639,7 +667,7 @@ export function reduce(state: UiState, action: Action): UiState {
         }
         case "context_updated": {
           const budget = event.budget as unknown as ContextBudgetDto;
-          return local((s) => ({ ...s, context: budget }), "");
+          return local((s) => ({ ...s, context: budget, contextOverlayTokens: 0 }), "");
         }
         case "completed":
           return local(
@@ -649,6 +677,7 @@ export function reduce(state: UiState, action: Action): UiState {
               status: "",
               activity: { kind: "completed", text: "已完成" },
               transcriptDirty: true,
+              contextOverlayTokens: 0,
               // The turn ended: the refetched transcript is authoritative, so
               // the snapshot's stale partial must not render below the answer.
               assistantPartial: null,
@@ -664,6 +693,7 @@ export function reduce(state: UiState, action: Action): UiState {
               activity: { kind: "failed", text: "请求失败" },
               lastError: str("error"),
               transcriptDirty: true,
+              contextOverlayTokens: 0,
               // The half-finished answer is already flushed into the live rows
               // (and persists server-side); appending it again would duplicate.
               assistantPartial: null,
@@ -678,6 +708,7 @@ export function reduce(state: UiState, action: Action): UiState {
               status: "",
               activity: { kind: "cancelled", text: "已取消" },
               transcriptDirty: true,
+              contextOverlayTokens: 0,
               assistantPartial: null,
             }),
             "已取消",
@@ -716,6 +747,7 @@ export function reduce(state: UiState, action: Action): UiState {
               busy: false,
               activity: { kind: "compacting", text: "上下文压缩完成" },
               transcriptDirty: true,
+              contextOverlayTokens: 0,
             }),
             `已压缩（隐藏 ${num("hidden")} 条）`,
           );
@@ -726,6 +758,7 @@ export function reduce(state: UiState, action: Action): UiState {
               status: `压缩失败：${str("error")}`,
               busy: false,
               activity: { kind: "compacting", text: "上下文压缩失败" },
+              contextOverlayTokens: 0,
             }),
             `压缩失败：${str("error")}`,
           );

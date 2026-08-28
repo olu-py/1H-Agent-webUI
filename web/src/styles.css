@@ -52,6 +52,7 @@
   --transition: 150ms ease;
   --transition-fast: 100ms ease;
   /* z-index scale */
+  --z-menu: 25;
   --z-drawer: 30;
   --z-todo: 40;
   --z-modal: 50;
@@ -371,6 +372,14 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   display: flex;
   align-items: center;
   gap: var(--space-1);
+}
+/* Home "recent sessions" card menu: trigger sits in the card's top-right and
+   is revealed on card hover, matching the sidebar rows. */
+.session-card-wrap { position: relative; }
+.session-card-wrap .session-menu-anchor {
+  top: 0.55rem;
+  right: 0.55rem;
+  transform: none;
 }
 .home-empty {
   color: var(--muted);
@@ -1161,6 +1170,73 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   flex: none;
 }
 .session-child { color: var(--muted); flex: none; display: inline-flex; }
+
+/* Per-session action menu (fork / delete). The trigger is hidden and only
+   revealed while the row is hovered / keyboard-focused (or while its menu is
+   open); the dropdown is portaled to <body> with fixed positioning so the
+   scrollable tree never clips it. */
+.session-row { position: relative; }
+.session-menu-anchor {
+  position: absolute;
+  right: 0.4rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.session-menu-btn {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition), visibility var(--transition);
+}
+.session-row:hover .session-menu-btn,
+.session-row:focus-within .session-menu-btn,
+.session-card-wrap:hover .session-menu-btn,
+.session-card-wrap:focus-within .session-menu-btn,
+.session-menu-btn[aria-expanded="true"] {
+  opacity: 1;
+  visibility: visible;
+}
+.session-menu {
+  min-width: 9rem;
+  max-width: 18rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: var(--z-menu);
+}
+.session-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.45em 0.7em;
+  font-size: var(--text-sm);
+  color: var(--fg);
+  transition: background var(--transition);
+}
+.session-menu-item:hover { background: var(--surface-hover); }
+.session-menu-item.destructive { color: var(--danger); }
+.session-menu-item.destructive:hover { background: var(--danger-soft); }
+.session-menu-confirm {
+  margin: 0;
+  padding: 0.45em 0.7em;
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+.session-menu-confirm-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  padding: 0.3em 0.7em 0.55em;
+}
 
 /* ---------- Modal / Approval ---------- */
 .modal-backdrop {

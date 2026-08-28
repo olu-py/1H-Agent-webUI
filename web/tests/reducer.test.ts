@@ -169,6 +169,63 @@ describe("reducer", () => {
     expect(s.context?.context_window_tokens).toBe(8192);
   });
 
+  it("accumulates a live context overlay during streaming and resets at anchors", () => {
+    let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    s = reduce(s, {
+      type: "event",
+      envelope: env(11, "s1", {
+        type: "context_updated",
+        budget: { context_window_tokens: 8192, used_tokens: 2000, output_reserve_tokens: 512, safe_input_tokens: 5680, estimated: false },
+      }),
+    });
+    expect(s.contextOverlayTokens).toBe(0);
+    // Text deltas accumulate the estimate (ceil(bytes/4), min 1).
+    s = reduce(s, { type: "event", envelope: env(12, "s1", { type: "text_delta", delta: "abcd" }) });
+    expect(s.contextOverlayTokens).toBe(1);
+    s = reduce(s, { type: "event", envelope: env(13, "s1", { type: "text_delta", delta: "12345678" }) });
+    expect(s.contextOverlayTokens).toBe(3);
+    // Tool result bytes accumulate too.
+    const call: ToolCall = { id: "t1", name: "read_file", arguments: {} };
+    s = reduce(s, { type: "event", envelope: env(14, "s1", { type: "tool_finished", call, result: "0123456789abcdef" }) });
+    expect(s.contextOverlayTokens).toBe(7);
+    // An authoritative refresh zeroes the overlay and updates the base.
+    s = reduce(s, {
+      type: "event",
+      envelope: env(15, "s1", {
+        type: "context_updated",
+        budget: { context_window_tokens: 8192, used_tokens: 2200, output_reserve_tokens: 512, safe_input_tokens: 5480, estimated: false },
+      }),
+    });
+    expect(s.contextOverlayTokens).toBe(0);
+    expect(s.context?.used_tokens).toBe(2200);
+  });
+
+  it("resets the context overlay on terminal and compaction events", () => {
+    let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    s = reduce(s, { type: "event", envelope: env(11, "s1", { type: "text_delta", delta: "some streamed text here" }) });
+    expect(s.contextOverlayTokens).toBeGreaterThan(0);
+    s = reduce(s, { type: "event", envelope: env(12, "s1", { type: "completed" }) });
+    expect(s.contextOverlayTokens).toBe(0);
+
+    s = reduce(s, { type: "event", envelope: env(13, "s1", { type: "text_delta", delta: "more text" }) });
+    s = reduce(s, { type: "event", envelope: env(14, "s1", { type: "failed", error: "boom" }) });
+    expect(s.contextOverlayTokens).toBe(0);
+
+    s = reduce(s, { type: "event", envelope: env(15, "s1", { type: "text_delta", delta: "again" }) });
+    s = reduce(s, { type: "event", envelope: env(16, "s1", { type: "cancelled", reason: "user" }) });
+    expect(s.contextOverlayTokens).toBe(0);
+
+    s = reduce(s, { type: "event", envelope: env(17, "s1", { type: "text_delta", delta: "one more" }) });
+    s = reduce(s, { type: "event", envelope: env(18, "s1", { type: "compaction_completed", hidden: 3 }) });
+    expect(s.contextOverlayTokens).toBe(0);
+  });
+
+  it("does not overlay context growth for background sessions", () => {
+    let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    s = reduce(s, { type: "event", envelope: env(11, "bg1", { type: "text_delta", delta: "background stream" }) });
+    expect(s.contextOverlayTokens).toBe(0);
+  });
+
   it("tracks child_session_progress status and per-session tree status", () => {
     let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
     s = reduce(s, {

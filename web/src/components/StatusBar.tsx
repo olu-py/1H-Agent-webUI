@@ -7,19 +7,24 @@ function compactTokens(tokens: number): string {
   return String(tokens);
 }
 
-/** Context capacity of the active session, plus a tiered progress bar. */
-function contextView(context: ContextBudgetDto | null): {
+/** Context capacity of the active session, plus a tiered progress bar.
+ * `overlayTokens` is the frontend's live estimate of tokens streamed since the
+ * last authoritative `context_updated`; it is layered on `used_tokens` so the
+ * meter grows during generation instead of only at round boundaries. */
+function contextView(context: ContextBudgetDto | null, overlayTokens: number): {
   text: string;
   percent: number | null;
   tone: "ok" | "warn" | "danger" | "";
 } {
   if (!context) return { text: "", percent: null, tone: "" };
-  const used = Number(context.used_tokens);
+  const used = Number(context.used_tokens) + overlayTokens;
   const limit =
     context.context_window_tokens != null ? Number(context.context_window_tokens) : null;
-  const safe = context.safe_input_tokens != null ? Number(context.safe_input_tokens) : null;
-  const percent = limit ? Math.round((used / limit) * 100) : null;
-  const estimate = context.estimated ? "（估算）" : "";
+  const reserve = Number(context.output_reserve_tokens);
+  const safe =
+    limit != null ? Math.max(0, limit - reserve - used) : null;
+  const percent = limit ? Math.min(100, Math.round((used / limit) * 100)) : null;
+  const estimate = context.estimated || overlayTokens > 0 ? "（估算）" : "";
   let text: string;
   if (limit != null && safe != null) {
     text = `上下文 ${percent}% 可用${compactTokens(safe)}${estimate}`;
@@ -43,15 +48,17 @@ function contextView(context: ContextBudgetDto | null): {
 export function StatusBar({
   activity,
   context,
+  contextOverlayTokens,
   usage,
   status,
 }: {
   activity: ActivityState;
   context: ContextBudgetDto | null;
+  contextOverlayTokens: number;
   usage: UsageInfo | null;
   status: string;
 }) {
-  const ctx = contextView(context);
+  const ctx = contextView(context, contextOverlayTokens);
   return (
     <div className="status-bar">
       <div className="status-bar-inner">

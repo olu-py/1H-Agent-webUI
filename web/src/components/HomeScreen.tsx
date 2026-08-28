@@ -3,7 +3,9 @@ import type { ChatActions } from "../hooks";
 import type { UiState } from "../state/reducer";
 import { AGENT_MODES, modeInfo } from "../lib/modes";
 import { PROVIDERS, providerKey } from "../lib/providers";
+import { sessionListStatus } from "../lib/session-status";
 import { Icon } from "./icons";
+import { SessionMenu } from "./SessionMenu";
 
 /**
  * Home screen: centered hero + a big input card carrying a local pending mode
@@ -113,7 +115,7 @@ export function HomeScreen({ state, actions }: { state: UiState; actions: ChatAc
           ) : (
             <ul className="session-cards">
               {state.sessions.slice(0, 8).map((session) => (
-                <li key={session.id}>
+                <li key={session.id} className="session-card-wrap">
                   <button
                     type="button"
                     className={`session-card ${session.id === state.activeSession ? "active" : ""}`}
@@ -122,12 +124,19 @@ export function HomeScreen({ state, actions }: { state: UiState; actions: ChatAc
                     <span className="session-card-title">{session.title || "(无标题)"}</span>
                     <span className="session-card-meta">
                       <span className={`session-dot ${session.busy ? "busy" : ""}`} />
-                      {session.busy ? "运行中" : session.status || "空闲"}
+                      {session.busy
+                        ? "运行中"
+                        : sessionListStatus(session.status, session.id === state.activeSession) || "空闲"}
                       {session.parent_id ? (
                         <Icon name="fork" size={12} title="子会话" />
                       ) : null}
                     </span>
                   </button>
+                  <SessionMenu
+                    sessionId={session.id}
+                    title={session.title}
+                    actions={actions}
+                  />
                 </li>
               ))}
             </ul>

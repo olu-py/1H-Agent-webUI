@@ -26,6 +26,13 @@ export interface Actions {
   approve(approvalId: string, accept: boolean, allowSession?: boolean): Promise<void>;
   cancel(): Promise<void>;
   activate(sessionId: string): Promise<void>;
+  /** Forks a specific session (not necessarily the active one): activates it
+   * first, then runs `/fork`. No-op without error when the activation fails —
+   * the command must never run against the wrong (still-active) session. */
+  forkSession(sessionId: string): Promise<void>;
+  /** Deletes a specific session (not necessarily the active one): activates it
+   * first, then runs `/delete`. Guarded like `forkSession`. */
+  deleteSession(sessionId: string): Promise<void>;
   setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void>;
   /** Fetches the provider settings view into the store (settings dialog). */
   loadProviderSettings(): Promise<void>;
@@ -52,8 +59,22 @@ export function createActions(transport: Transport, store: Store): Actions {
       store.dispatch({ type: "clearTranscript" });
       return;
     }
-    const page = await transport.messages(activeSession, { limit: PAGE_SIZE });
-    store.dispatch({ type: "messages", page, replace: true });
+    try {
+      const page = await transport.messages(activeSession, { limit: PAGE_SIZE });
+      store.dispatch({ type: "messages", page, replace: true });
+    } catch (error) {
+      // The active session may have just been deleted server-side: a `/delete`
+      // lands a `transcript_invalidated` for the deleted session while the
+      // client still points at it, and this follow-up fetch would 404. Its
+      // transcript is gone too — clear the cache and let the incoming snapshot
+      // converge to the new active session rather than surfacing a confusing
+      // "unknown session" banner.
+      if (isNotFound(error)) {
+        store.dispatch({ type: "clearTranscript" });
+        return;
+      }
+      throw error;
+    }
   };
 
   const onEvent = (envelope: Envelope): void => {
@@ -204,6 +225,29 @@ export function createActions(transport: Transport, store: Store): Actions {
     }
   };
 
+  // The core `/fork` and `/delete` commands operate on the *active* session, so
+  // a session-picked action first activates the target (unless it already is
+  // the active one). `activate` swallows failures, so after it we re-check that
+  // the active session actually converged to the target; otherwise the command
+  // would silently hit the wrong (still-active) session — abort instead.
+  const forkSession = async (sessionId: string): Promise<void> => {
+    const { activeSession } = store.getState();
+    if (activeSession !== sessionId) {
+      await activate(sessionId);
+    }
+    if (store.getState().activeSession !== sessionId) return;
+    await executeCommand("/fork");
+  };
+
+  const deleteSession = async (sessionId: string): Promise<void> => {
+    const { activeSession } = store.getState();
+    if (activeSession !== sessionId) {
+      await activate(sessionId);
+    }
+    if (store.getState().activeSession !== sessionId) return;
+    await executeCommand("/delete");
+  };
+
   const setProvider = async (
     preset: string,
     model: string,
@@ -261,6 +305,8 @@ export function createActions(transport: Transport, store: Store): Actions {
     approve,
     cancel,
     activate,
+    forkSession,
+    deleteSession,
     setProvider,
     loadProviderSettings,
     loadOlder,
@@ -272,4 +318,16 @@ export function createActions(transport: Transport, store: Store): Actions {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** True for a 404/not-found transport error. Duck-typed on `status` so the
+ * actions layer stays decoupled from the HTTP error class (a Tauri IPC
+ * transport can carry the same shape). */
+function isNotFound(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    (error as { status?: unknown }).status === 404
+  );
 }

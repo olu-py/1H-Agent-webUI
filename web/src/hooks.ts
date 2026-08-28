@@ -15,6 +15,8 @@ export interface ChatActions {
   approve(approvalId: string, accept: boolean, allowSession?: boolean): Promise<void>;
   cancel(): Promise<void>;
   activate(sessionId: string): Promise<void>;
+  forkSession(sessionId: string): Promise<void>;
+  deleteSession(sessionId: string): Promise<void>;
   setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void>;
   loadProviderSettings(): Promise<void>;
   loadOlder(): Promise<void>;
@@ -27,6 +29,8 @@ export function useChatActions(actions: Actions): ChatActions {
     approve: actions.approve,
     cancel: actions.cancel,
     activate: actions.activate,
+    forkSession: actions.forkSession,
+    deleteSession: actions.deleteSession,
     setProvider: actions.setProvider,
     loadProviderSettings: actions.loadProviderSettings,
     loadOlder: actions.loadOlder,

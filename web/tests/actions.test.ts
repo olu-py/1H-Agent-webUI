@@ -221,3 +221,94 @@ describe("actions.setProvider / loadProviderSettings", () => {
     expect(store.getState().providerSettings).toEqual(settings);
   });
 });
+
+describe("actions.forkSession / deleteSession", () => {
+  const page = { messages: [], next_before: null, has_more: false } satisfies MessagePage;
+
+  it("forks a non-active session: activates it first, then runs /fork", async () => {
+    const transport = fakeTransport();
+    (transport.snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(snap("build", "s2"));
+    (transport.messages as ReturnType<typeof vi.fn>).mockResolvedValue(page);
+    const store = createStore();
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "s1") });
+    const actions = createActions(transport, store);
+
+    await actions.forkSession("s2");
+
+    expect(transport.activateSession).toHaveBeenCalledWith("s2");
+    expect(transport.executeCommand).toHaveBeenCalledWith("s2", "/fork");
+  });
+
+  it("deletes a non-active session: activates it first, then runs /delete", async () => {
+    const transport = fakeTransport();
+    (transport.snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(snap("build", "s2"));
+    (transport.messages as ReturnType<typeof vi.fn>).mockResolvedValue(page);
+    const store = createStore();
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "s1") });
+    const actions = createActions(transport, store);
+
+    await actions.deleteSession("s2");
+
+    expect(transport.activateSession).toHaveBeenCalledWith("s2");
+    expect(transport.executeCommand).toHaveBeenCalledWith("s2", "/delete");
+  });
+
+  it("skips the activation when the target is already active", async () => {
+    const transport = fakeTransport();
+    (transport.snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(snap("build", "s2"));
+    (transport.messages as ReturnType<typeof vi.fn>).mockResolvedValue(page);
+    const store = createStore();
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "s2") });
+    const actions = createActions(transport, store);
+
+    await actions.forkSession("s2");
+
+    expect(transport.activateSession).not.toHaveBeenCalled();
+    expect(transport.executeCommand).toHaveBeenCalledWith("s2", "/fork");
+  });
+
+  it("aborts (no command) when the activation does not converge to the target", async () => {
+    const transport = fakeTransport();
+    // The server never becomes the target: snapshot keeps reporting s1.
+    (transport.snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(snap("build", "s1"));
+    const store = createStore();
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "s1") });
+    const actions = createActions(transport, store);
+
+    await actions.deleteSession("s2");
+
+    expect(transport.activateSession).toHaveBeenCalledWith("s2");
+    // The guard must stop the delete from hitting the still-active session.
+    expect(transport.executeCommand).not.toHaveBeenCalled();
+  });
+});
+
+describe("actions.refreshTranscript after a session is deleted", () => {
+  it("clears the transcript instead of surfacing a 404 'unknown session'", async () => {
+    const transport = fakeTransport();
+    const notFound = Object.assign(new Error("unknown session s1"), {
+      status: 404,
+      kind: "not_found",
+    });
+    (transport.messages as ReturnType<typeof vi.fn>).mockRejectedValue(notFound);
+    const store = createStore();
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "s1") });
+    const actions = createActions(transport, store);
+
+    await actions.refreshTranscript();
+
+    expect(transport.messages).toHaveBeenCalledWith("s1", { limit: expect.any(Number) });
+    expect(store.getState().messages).toHaveLength(0);
+    expect(store.getState().lastError).toBeNull();
+  });
+
+  it("still surfaces genuine (non-404) transcript failures", async () => {
+    const transport = fakeTransport();
+    (transport.messages as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("boom"));
+    const store = createStore();
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "s1") });
+    const actions = createActions(transport, store);
+
+    await expect(actions.refreshTranscript()).rejects.toThrow("boom");
+  });
+});

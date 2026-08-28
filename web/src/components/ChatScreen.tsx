@@ -140,6 +140,7 @@ export function ChatScreen({
               statuses={state.backgroundStatus}
               approval={state.approval}
               onActivate={activate}
+              actions={actions}
             />
           </div>
           <div className="sidebar-footer">
@@ -172,6 +173,7 @@ export function ChatScreen({
           <StatusBar
             activity={state.activity}
             context={state.context}
+            contextOverlayTokens={state.contextOverlayTokens}
             usage={state.usage}
             status={state.status}
           />

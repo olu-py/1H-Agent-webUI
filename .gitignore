@@ -31,6 +31,10 @@ config.toml
 # web/dist/ is committed: the single Rust binary embeds it via rust-embed, so
 # `cargo build` works without a prior frontend build. CI rebuilds it fresh.
 
+# Local cargo target dir used when running protium-core tests with a
+# redirected CARGO_TARGET_DIR (kept out of the workspace `target/`).
+/.cargo-targets-core/
+
 # Packaging output
 /dist/
 *.deb
