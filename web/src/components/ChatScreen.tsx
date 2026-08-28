@@ -1,7 +1,8 @@
+import { useMemo } from "react";
 import type { ChatActions } from "../hooks";
 import type { UiState } from "../state/reducer";
 import type { ThemePreference } from "../lib/theme";
-import { withPartial } from "../lib/transcript";
+import { attachToolOutputs, withPartial } from "../lib/transcript";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
 import { SessionTree } from "./SessionTree";
@@ -36,7 +37,13 @@ export function ChatScreen({
   onOpenProvider: () => void;
 }) {
   const active = state.sessions.find((s) => s.id === state.activeSession);
-  const viewMessages = withPartial(state.messages, state.assistantPartial);
+  // Fold tool outputs into their call rows before rendering; memoized so
+  // unrelated state updates (status/usage ticks) keep row identities stable.
+  // While busy the partial is suppressed: a live turn renders its own rows.
+  const viewMessages = useMemo(
+    () => attachToolOutputs(withPartial(state.messages, state.busy ? null : state.assistantPartial)),
+    [state.messages, state.assistantPartial, state.busy],
+  );
   // On mobile the drawer closes after picking a session; desktop is static.
   const onToggleSessionsClosed = () => {
     if (showSessions && window.matchMedia("(max-width: 860px)").matches) {

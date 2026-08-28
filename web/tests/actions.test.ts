@@ -96,6 +96,56 @@ describe("actions.submit with a pending mode", () => {
   });
 });
 
+describe("actions.submit optimistic echo", () => {
+  it("echoes the message into the transcript before the transport resolves", async () => {
+    const transport = fakeTransport();
+    let release!: (value: void) => void;
+    (transport.submit as ReturnType<typeof vi.fn>).mockImplementation(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    (transport.snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(snap("build"));
+    const store = createStore();
+    const actions = createActions(transport, store);
+
+    const pending = actions.submit("你好");
+    // The echo landed synchronously, while the request is still in flight.
+    expect(store.getState().messages.map((m) => [m.kind, m.content])).toEqual([["user", "你好"]]);
+
+    release();
+    await pending;
+    // A successful submit keeps the echo until the completion refetch
+    // replaces it with the persisted row.
+    expect(store.getState().messages.map((m) => [m.kind, m.content])).toEqual([["user", "你好"]]);
+  });
+
+  it("drops the echo when the submit is rejected", async () => {
+    const transport = fakeTransport();
+    (transport.submit as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("session is busy with another request"),
+    );
+    const store = createStore();
+    const actions = createActions(transport, store);
+
+    await actions.submit("你好");
+
+    expect(store.getState().messages).toHaveLength(0);
+    expect(store.getState().lastError).toContain("busy");
+  });
+
+  it("does not echo commands or shell lines", async () => {
+    const transport = fakeTransport();
+    (transport.submit as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (transport.snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(snap("build"));
+    const store = createStore();
+    const actions = createActions(transport, store);
+
+    await actions.submit("/plan");
+    await actions.submit("!ls");
+
+    expect(store.getState().messages).toHaveLength(0);
+  });
+});
+
 describe("actions.setProvider / loadProviderSettings", () => {
   it("applies the edit, then refreshes snapshot and settings view", async () => {
     const transport = fakeTransport();

@@ -25,6 +25,10 @@ export interface ViewMessage {
   kind: MessageDto["kind"];
   role: "user" | "assistant" | "system" | "thinking" | "context" | "tool" | "tool_calls" | "tool_output" | "compaction_summary";
   content: string;
+  /** Reasoning that already finished streaming (kept when a live row is
+   * closed at a round boundary or flushed at turn end). Rendered as the
+   * collapsed thinking panel above the text. */
+  thinking?: string;
   label?: string;
   callId?: string;
   name?: string;
@@ -32,6 +36,8 @@ export interface ViewMessage {
   status?: string;
   result?: string | null;
   calls?: ToolCall[];
+  /** Per-call outputs folded from trailing `tool_output` rows, keyed by call id. */
+  outputs?: Record<string, string>;
   output?: string;
   createdAt: string;
   /** In-flight streamed text not yet persisted by the server. */
@@ -104,6 +110,8 @@ export interface UiState {
 export type Action =
   | { type: "snapshot"; snapshot: AppSnapshotV2 }
   | { type: "messages"; page: MessagePage; replace: boolean }
+  | { type: "userEcho"; text: string }
+  | { type: "dropUserEcho" }
   | { type: "event"; envelope: Envelope }
   | { type: "connected"; connected: boolean }
   | { type: "clearTranscript" }
@@ -188,13 +196,36 @@ function replaceAt(state: UiState, index: number, message: ViewMessage): UiState
   return { ...state, messages };
 }
 
-/** Appends a streamed delta to the last assistant message, creating a
- * synthetic one when the session has not produced any assistant message yet. */
+/** Index of the live streaming row of the current model round: the trailing
+ * streaming row, or - when the transient "正在生成工具调用" row sits at the
+ * tail (tool arguments still streaming), the live row right above it - body
+ * text belongs to that row, not to a new one below the transient row. */
+function streamingTargetIndex(messages: ViewMessage[]): number {
+  const isLive = (m: ViewMessage | undefined): boolean =>
+    m?.kind === "assistant" && (m.streamingText !== undefined || m.streamingThinking !== undefined);
+  const last = messages[messages.length - 1];
+  if (isLive(last)) return messages.length - 1;
+  if (last?.kind === "tool" && last.status === "generating" && isLive(messages[messages.length - 2])) {
+    return messages.length - 2;
+  }
+  return -1;
+}
+
+/** Appends a streamed delta to the current round's live row, creating a new
+ * synthetic one whenever no live row is attachable. Two rules keep the live
+ * layout in arrival order (and matching the persisted transcript):
+ *
+ * - The tail must be the current round's live row: a persisted row, the user's
+ *   message, tool rows from an earlier round, or an already-closed row all
+ *   force a fresh row - attaching to them would render the stream above
+ *   content that precedes it.
+ * - Thinking never merges into a row whose body text already streamed: a
+ *   later reasoning segment opens a new row below that text (the TUI likewise
+ *   persists each reasoning segment as its own entry below earlier output). */
 function appendStream(state: UiState, which: "text" | "thinking", delta: string): UiState {
-  let index = state.messages.length - 1;
-  while (index >= 0 && state.messages[index].kind !== "assistant") index -= 1;
-  if (index >= 0) {
-    const current = state.messages[index];
+  const index = streamingTargetIndex(state.messages);
+  const current = index >= 0 ? state.messages[index] : undefined;
+  if (current && !(which === "thinking" && current.streamingText !== undefined)) {
     const next = {
       ...current,
       streamingText: which === "text" ? (current.streamingText ?? "") + delta : current.streamingText,
@@ -216,16 +247,38 @@ function appendStream(state: UiState, which: "text" | "thinking", delta: string)
   return { ...state, synthSeq, messages: [...state.messages, created], busy: true };
 }
 
-/** Merges in-flight streaming into `content` (used when the turn ends). */
+/** Merges in-flight streaming into `content`/`thinking` (used when a round
+ * closes or the turn ends). The reasoning is kept on the row - collapsed in
+ * the thinking panel - instead of vanishing until the terminal refetch. */
+function closeRow(m: ViewMessage): ViewMessage {
+  return {
+    ...m,
+    content: m.content + (m.streamingText ?? ""),
+    thinking: m.thinking ?? m.streamingThinking,
+    streamingText: undefined,
+    streamingThinking: undefined,
+  };
+}
+
+/** Closes every row that still carries in-flight streaming flags (text folded
+ * into `content`, reasoning into `thinking`). Invoked at each round boundary so
+ * exactly one round's rows stay live: later deltas open fresh rows below, and
+ * the "live thinking" highlight can never resurrect an earlier round's panel. */
+function closeLiveRows(state: UiState): UiState {
+  let changed = false;
+  const messages = state.messages.map((m) => {
+    if (m.streamingText === undefined && m.streamingThinking === undefined) return m;
+    changed = true;
+    return closeRow(m);
+  });
+  return changed ? { ...state, messages } : state;
+}
+
+/** Merges every in-flight streaming row (used when the turn ends). */
 function flushStreaming(state: UiState): UiState {
   const messages = state.messages.map((m) => {
     if (!m.streamingText && !m.streamingThinking) return m;
-    return {
-      ...m,
-      content: m.content + (m.streamingText ?? ""),
-      streamingText: undefined,
-      streamingThinking: undefined,
-    };
+    return closeRow(m);
   });
   return { ...state, messages };
 }
@@ -234,6 +287,16 @@ function flushStreaming(state: UiState): UiState {
 function dropGeneratingRows(state: UiState): UiState {
   const messages = state.messages.filter((m) => !(m.kind === "tool" && m.status === "generating"));
   return messages.length === state.messages.length ? state : { ...state, messages };
+}
+
+/** Removes the trailing optimistic user-echo row - its submit was rejected,
+ * so the message never reached the server. An echo that streamed content
+ * already follows is kept: that submit was accepted (only its response was
+ * lost) and the terminal refetch will replace it with the persisted row. */
+function dropTrailingUserEcho(state: UiState): UiState {
+  const last = state.messages[state.messages.length - 1];
+  if (!last || last.kind !== "user" || last.id >= 0) return state;
+  return { ...state, messages: state.messages.slice(0, -1) };
 }
 
 /** Creates or updates the single transient "正在生成工具调用" row. */
@@ -322,6 +385,28 @@ export function reduce(state: UiState, action: Action): UiState {
         transcriptDirty: false,
       };
 
+    case "userEcho": {
+      // Optimistic echo of an outgoing message, appended before the submit
+      // request resolves: the server persists the row on submit but sends no
+      // transcript event, and no refetch happens until the turn ends - so
+      // without the echo the reply would stream above an invisible question.
+      // The post-completion refetch replaces it with the persisted row (same
+      // content, same position - no layout shift).
+      const synthSeq = state.synthSeq + 1;
+      const echo: ViewMessage = {
+        key: `syn-user-${synthSeq}`,
+        id: -synthSeq,
+        kind: "user",
+        role: "user",
+        content: action.text,
+        createdAt: new Date(0).toISOString(),
+      };
+      return { ...state, synthSeq, messages: [...state.messages, echo] };
+    }
+
+    case "dropUserEcho":
+      return dropTrailingUserEcho(state);
+
     case "connected":
       return { ...state, connected: action.connected };
 
@@ -373,9 +458,12 @@ export function reduce(state: UiState, action: Action): UiState {
             "正在生成回复",
           );
         case "model_streaming":
+          // Round barrier: every previous round's live row is closed here (and
+          // any stale generating row dropped) so this round's deltas always
+          // open a fresh row below everything that precedes them.
           return local(
             (s) => ({
-              ...s,
+              ...dropGeneratingRows(closeLiveRows(s)),
               busy: true,
               status: "",
               activity: { kind: "thinking", text: "模型响应中" },
@@ -454,13 +542,17 @@ export function reduce(state: UiState, action: Action): UiState {
         case "tool_finished": {
           const c = call();
           const result = str("result");
-          const index = findToolIndex(base, c.id);
+          // A finished call ends the argument-streaming phase even when no
+          // `tool_started` ever arrived (denied / rejected / duplicate calls) -
+          // drop the transient generating row so it cannot linger mid-transcript.
+          const cleaned = dropGeneratingRows(base);
+          const index = findToolIndex(cleaned, c.id);
           if (index >= 0) {
-            const current = base.messages[index];
+            const current = cleaned.messages[index];
             const updated: ViewMessage = { ...current, status: "done", result };
             return local(
               (s) => ({
-                ...replaceAt(s, index, updated),
+                ...replaceAt(dropGeneratingRows(s), index, updated),
                 busy: true,
                 status: `工具完成：${c.name}`,
                 activity: { kind: "tool_run", text: "工具执行完成" },
@@ -489,7 +581,7 @@ export function reduce(state: UiState, action: Action): UiState {
               busy: true,
               status: `工具完成：${c.name}`,
               activity: { kind: "tool_run", text: "工具执行完成" },
-              messages: [...s.messages, toolMsg],
+              messages: [...dropGeneratingRows(s).messages, toolMsg],
             }),
             `工具完成：${c.name}`,
           );
@@ -557,6 +649,9 @@ export function reduce(state: UiState, action: Action): UiState {
               status: "",
               activity: { kind: "completed", text: "已完成" },
               transcriptDirty: true,
+              // The turn ended: the refetched transcript is authoritative, so
+              // the snapshot's stale partial must not render below the answer.
+              assistantPartial: null,
             }),
             "已完成",
           );
@@ -569,6 +664,9 @@ export function reduce(state: UiState, action: Action): UiState {
               activity: { kind: "failed", text: "请求失败" },
               lastError: str("error"),
               transcriptDirty: true,
+              // The half-finished answer is already flushed into the live rows
+              // (and persists server-side); appending it again would duplicate.
+              assistantPartial: null,
             }),
             "请求失败",
           );
@@ -580,6 +678,7 @@ export function reduce(state: UiState, action: Action): UiState {
               status: "",
               activity: { kind: "cancelled", text: "已取消" },
               transcriptDirty: true,
+              assistantPartial: null,
             }),
             "已取消",
           );

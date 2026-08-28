@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { ViewMessage } from "../state/reducer";
 import { copyText } from "../lib/copy";
 import { Markdown } from "./Markdown";
@@ -13,8 +13,10 @@ const TOOL_STATUS_LABEL: Record<string, string> = {
   cancelled: "已取消",
 };
 
-/** Renders one transcript message (user / assistant / tool / etc.). */
-export function MessageItem({
+/** Renders one transcript message (user / assistant / tool / etc.). Memoized:
+ * the list re-renders on every scroll tick, but only rows whose message
+ * actually changed (e.g. the streaming tail) need to re-render. */
+export const MessageItem = memo(function MessageItem({
   message,
   liveThinking,
 }: {
@@ -26,13 +28,17 @@ export function MessageItem({
     case "user":
       return <UserMessage content={message.content} />;
     case "assistant": {
-      const thinking = message.streamingThinking || (message as { thinking?: string }).thinking;
+      const thinking = message.streamingThinking ?? message.thinking;
       const text = message.content + (message.streamingText ?? "");
       return (
         <div className="msg msg-assistant">
           {thinking ? <ThinkingBlock text={thinking} live={!!liveThinking} /> : null}
           {message.partial ? <span className="badge partial">未完成</span> : null}
-          {text ? <Markdown text={text} /> : message.streamingText === undefined ? <em className="dim">…</em> : null}
+          {text ? (
+            <Markdown text={text} />
+          ) : message.streamingText === undefined && !message.thinking ? (
+            <em className="dim">…</em>
+          ) : null}
         </div>
       );
     }
@@ -66,7 +72,13 @@ export function MessageItem({
       return (
         <div className="msg msg-tool">
           {(message.calls ?? []).map((call) => (
-            <ToolCallRow key={call.id} name={call.name} args={call.arguments} status="done" result={undefined} />
+            <ToolCallRow
+              key={call.id}
+              name={call.name}
+              args={call.arguments}
+              status="done"
+              result={message.outputs?.[call.id]}
+            />
           ))}
         </div>
       );
@@ -77,7 +89,7 @@ export function MessageItem({
         </div>
       );
   }
-}
+});
 
 /** Right-aligned emphasized user bubble with a copy action. */
 function UserMessage({ content }: { content: string }) {
@@ -188,7 +200,7 @@ function ToolCallRow({
           ) : null}
           {result !== undefined ? (
             <>
-              <div className="dim tool-result">结果</div>
+              <div className="dim">输出结果</div>
               <pre className="tool-result">{result}</pre>
             </>
           ) : null}

@@ -336,13 +336,159 @@ describe("reducer", () => {
     expect(s.activity.kind).toBe("cancelled");
   });
 
-  it("keeps an assistant message when a tool runs before any text", () => {
+  it("keeps earlier streamed text and streams post-tool text as a new row", () => {
     let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
     s = reduce(s, { type: "event", envelope: env(11, "s1", { type: "text_delta", delta: "A" }) });
     const call: ToolCall = { id: "t1", name: "git_status", arguments: {} };
     s = reduce(s, { type: "event", envelope: env(12, "s1", { type: "tool_started", call }) });
     s = reduce(s, { type: "event", envelope: env(13, "s1", { type: "text_delta", delta: "B" }) });
-    const assistant = [...s.messages].reverse().find((m) => m.kind === "assistant");
-    expect(assistant?.streamingText).toBe("AB");
+    // Round 1's row keeps its streamed text; round 2 opens a new tail row so
+    // the live layout mirrors the persisted one (assistant / tools / assistant).
+    expect(s.messages.map((m) => m.kind)).toEqual(["assistant", "tool", "assistant"]);
+    expect(s.messages[0].streamingText).toBe("A");
+    expect(s.messages[2].streamingText).toBe("B");
+  });
+
+  it("streams a new turn's thinking below the previous turn's reply", () => {
+    let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    const page: MessagePage = {
+      messages: [userMessage(1, "q1"), assistantMessage(2, "旧回复正文")],
+      next_before: null,
+      has_more: false,
+    };
+    s = reduce(s, { type: "messages", page, replace: true });
+    // No transcript refetch happens on submit, so the cache tail is still the
+    // previous turn's persisted assistant row when reasoning starts.
+    s = reduce(s, { type: "event", envelope: env(11, "s1", { type: "reasoning_delta", delta: "新思考" }) });
+    expect(s.messages).toHaveLength(3);
+    const [prev, tail] = [s.messages[1], s.messages[2]];
+    expect(prev.streamingThinking).toBeUndefined();
+    expect(prev.content).toBe("旧回复正文");
+    expect(tail.kind).toBe("assistant");
+    expect(tail.streamingThinking).toBe("新思考");
+    expect(tail.id).toBeLessThan(0);
+  });
+
+  it("echoes the submitted message ahead of the streamed reply", () => {
+    let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    const page: MessagePage = {
+      messages: [userMessage(1, "q1"), assistantMessage(2, "旧回复正文")],
+      next_before: null,
+      has_more: false,
+    };
+    s = reduce(s, { type: "messages", page, replace: true });
+    s = reduce(s, { type: "userEcho", text: "新问题" });
+    expect(s.messages.map((m) => m.kind)).toEqual(["user", "assistant", "user"]);
+    const echo = s.messages[2];
+    expect(echo.content).toBe("新问题");
+    expect(echo.id).toBeLessThan(0);
+    // The reply streams below the echo, not in front of the previous turn.
+    s = reduce(s, { type: "event", envelope: env(11, "s1", { type: "reasoning_delta", delta: "思考" }) });
+    expect(s.messages.map((m) => m.kind)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(s.messages[3].streamingThinking).toBe("思考");
+  });
+
+  it("drops the trailing echo when its submit was rejected", () => {
+    let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    s = reduce(s, { type: "userEcho", text: "被拒绝" });
+    s = reduce(s, { type: "dropUserEcho" });
+    expect(s.messages).toHaveLength(0);
+  });
+
+  it("keeps an echo that streamed content already follows", () => {
+    // A submit whose response was lost while the server accepted it: the
+    // turn streams after the echo, so the rejection must not remove it.
+    let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    s = reduce(s, { type: "userEcho", text: "已发出" });
+    s = reduce(s, { type: "event", envelope: env(11, "s1", { type: "text_delta", delta: "A" }) });
+    s = reduce(s, { type: "dropUserEcho" });
+    expect(s.messages.map((m) => m.kind)).toEqual(["user", "assistant"]);
+    expect(s.messages[0].content).toBe("已发出");
+  });
+
+  it("streams a later reasoning segment below the round's streamed text", () => {
+    // Interleaved thinking: reasoning that arrives after body text must open
+    // a new row below it, never merge back above the already-streamed text.
+    let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    s = reduce(s, { type: "event", envelope: env(11, "s1", { type: "reasoning_delta", delta: "思考一" }) });
+    s = reduce(s, { type: "event", envelope: env(12, "s1", { type: "reasoning_completed" }) });
+    s = reduce(s, { type: "event", envelope: env(13, "s1", { type: "text_delta", delta: "正文一" }) });
+    s = reduce(s, { type: "event", envelope: env(14, "s1", { type: "reasoning_delta", delta: "思考二" }) });
+    s = reduce(s, { type: "event", envelope: env(15, "s1", { type: "text_delta", delta: "正文二" }) });
+    expect(s.messages.map((m) => m.kind)).toEqual(["assistant", "assistant"]);
+    expect(s.messages[0].streamingThinking).toBe("思考一");
+    expect(s.messages[0].streamingText).toBe("正文一");
+    expect(s.messages[1].streamingThinking).toBe("思考二");
+    expect(s.messages[1].streamingText).toBe("正文二");
+  });
+
+  it("closes the previous round's rows when a new model round starts", () => {
+    let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    s = reduce(s, { type: "event", envelope: env(11, "s1", { type: "reasoning_delta", delta: "思考一" }) });
+    s = reduce(s, { type: "event", envelope: env(12, "s1", { type: "reasoning_completed" }) });
+    s = reduce(s, { type: "event", envelope: env(13, "s1", { type: "text_delta", delta: "正文一" }) });
+    const call: ToolCall = { id: "t1", name: "git_status", arguments: {} };
+    s = reduce(s, { type: "event", envelope: env(14, "s1", { type: "tool_started", call }) });
+    s = reduce(s, { type: "event", envelope: env(15, "s1", { type: "tool_finished", call, result: "ok" }) });
+    // Round 2 begins: round 1's live row must be closed so later deltas can
+    // never attach to it (and its thinking panel cannot reopen as "live").
+    s = reduce(s, { type: "event", envelope: env(16, "s1", { type: "model_streaming" }) });
+    expect(s.messages.map((m) => m.kind)).toEqual(["assistant", "tool"]);
+    const closed = s.messages[0];
+    expect(closed.content).toBe("正文一");
+    expect(closed.thinking).toBe("思考一");
+    expect(closed.streamingText).toBeUndefined();
+    expect(closed.streamingThinking).toBeUndefined();
+    s = reduce(s, { type: "event", envelope: env(17, "s1", { type: "reasoning_delta", delta: "思考二" }) });
+    expect(s.messages.map((m) => m.kind)).toEqual(["assistant", "tool", "assistant"]);
+    expect(s.messages[2].streamingThinking).toBe("思考二");
+  });
+
+  it("continues the round's text across the transient generating row", () => {
+    // Tool arguments may stream interleaved with body text; the text belongs
+    // to the round's live row, not to a new row below the transient marker.
+    let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    s = reduce(s, { type: "event", envelope: env(11, "s1", { type: "text_delta", delta: "前半" }) });
+    s = reduce(s, { type: "event", envelope: env(12, "s1", { type: "tool_call_streaming", name: "read_file", received_bytes: 64 }) });
+    s = reduce(s, { type: "event", envelope: env(13, "s1", { type: "text_delta", delta: "后半" }) });
+    expect(s.messages.map((m) => m.kind)).toEqual(["assistant", "tool"]);
+    expect(s.messages[0].streamingText).toBe("前半后半");
+    expect(s.messages[1].status).toBe("generating");
+  });
+
+  it("drops the transient generating row when a denied tool finishes", () => {
+    // Denied/rejected/duplicate calls emit tool_finished without tool_started;
+    // the "正在生成工具调用" row must not linger mid-transcript.
+    let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    s = reduce(s, { type: "event", envelope: env(11, "s1", { type: "text_delta", delta: "A" }) });
+    s = reduce(s, { type: "event", envelope: env(12, "s1", { type: "tool_call_streaming", name: "file_write", received_bytes: 64 }) });
+    const call: ToolCall = { id: "t1", name: "file_write", arguments: {} };
+    s = reduce(s, { type: "event", envelope: env(13, "s1", { type: "tool_finished", call, result: "denied by policy" }) });
+    expect(s.messages.map((m) => [m.kind, m.status])).toEqual([["assistant", undefined], ["tool", "done"]]);
+  });
+
+  it("keeps streamed thinking visible when the turn completes", () => {
+    let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    s = reduce(s, { type: "event", envelope: env(11, "s1", { type: "reasoning_delta", delta: "思考" }) });
+    s = reduce(s, { type: "event", envelope: env(12, "s1", { type: "reasoning_completed" }) });
+    s = reduce(s, { type: "event", envelope: env(13, "s1", { type: "text_delta", delta: "正文" }) });
+    s = reduce(s, { type: "event", envelope: env(14, "s1", { type: "completed" }) });
+    const row = s.messages[0];
+    expect(row.content).toBe("正文");
+    expect(row.thinking).toBe("思考");
+    expect(row.streamingThinking).toBeUndefined();
+  });
+
+  it("clears a stale assistant partial when the turn ends", () => {
+    // A partial left by an earlier interrupted turn must not render below the
+    // finished answer while the transcript refetch is still in flight.
+    let s = reduce(initialState, {
+      type: "snapshot",
+      snapshot: snapshot({ assistant_partial: { content: "旧未完成", created_at: "2025-01-01T00:00:00Z" } }),
+    });
+    s = reduce(s, { type: "event", envelope: env(11, "s1", { type: "text_delta", delta: "回答" }) });
+    s = reduce(s, { type: "event", envelope: env(12, "s1", { type: "completed" }) });
+    expect(s.assistantPartial).toBeNull();
+    expect(s.transcriptDirty).toBe(true);
   });
 });

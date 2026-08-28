@@ -12,10 +12,13 @@ export interface Actions {
    * snapshot's `event_cursor`. Re-runs the dirty-flag effect loop after each
    * dispatch. */
   init(): Promise<void>;
-  /** Submits a message. `mode` is an optional *pending* mode preference used
-   * only when the snapshot does not already carry it (e.g. the first message
-   * that lazily creates a session): it is applied via a single `/${mode}`
-   * command after the snapshot converges, never guessed locally. */
+  /** Submits a message. Echoes it into the transcript optimistically (before
+   * the request) so it renders ahead of the streamed reply - normal chat
+   * ordering; a rejected submit drops the echo. `mode` is an optional
+   * *pending* mode preference used only when the snapshot does not already
+   * carry it (e.g. the first message that lazily creates a session): it is
+   * applied via a single `/${mode}` command after the snapshot converges,
+   * never guessed locally. */
   submit(text: string, mode?: string): Promise<void>;
   executeCommand(text: string): Promise<void>;
   /** Resolves a pending approval; `allowSession` permits the tool for the rest
@@ -114,9 +117,28 @@ export function createActions(transport: Transport, store: Store): Actions {
 
   const submit = async (text: string, mode?: string): Promise<void> => {
     store.dispatch({ type: "clearError" });
+    // Optimistic echo: append the outgoing message before the request so the
+    // transcript immediately shows it with the reply streaming below. The
+    // server persists the user row on submit but emits no transcript event,
+    // so without the echo the question stays invisible until the turn ends.
+    // Commands (`/…`) and shell lines (`!…`) get no echo: they are not
+    // persisted as user messages and their feedback comes from events / the
+    // post-command refetch.
+    if (!text.startsWith("/") && !text.startsWith("!")) {
+      store.dispatch({ type: "userEcho", text });
+    }
     try {
       const { activeSession } = store.getState();
-      await transport.submit(activeSession, text);
+      try {
+        await transport.submit(activeSession, text);
+      } catch (error) {
+        // The input was not accepted: drop the trailing echo so a rejected
+        // message does not linger as if it had been sent. (An echo followed
+        // by streamed content is kept - that submit was accepted, only its
+        // response was lost - and the terminal refetch replaces it.)
+        store.dispatch({ type: "dropUserEcho" });
+        throw error;
+      }
       // The session may be created lazily on first input; refresh to learn the
       // new active session and its (empty) transcript.
       await refreshSnapshot();

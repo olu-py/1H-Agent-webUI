@@ -870,6 +870,10 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 .messages {
   flex: 1;
   overflow-y: auto;
+  /* The virtualized list adjusts scrollTop itself (bottom pinning + anchor
+     compensation); the browser's native scroll anchoring would fight those
+     writes and twitch the viewport. */
+  overflow-anchor: none;
   padding: var(--space-3) var(--space-4) var(--space-4);
 }
 .message-row {
@@ -1090,6 +1094,9 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   font-size: 0.82rem;
 }
 .tool-result { color: var(--muted); }
+/* Folded tool output keeps the standalone block's scrollable height cap so
+   huge outputs don't blow up the expanded call row. */
+.tool-body pre.tool-result { max-height: 18rem; overflow: auto; }
 .tool-call.generating {
   display: flex;
   align-items: center;
