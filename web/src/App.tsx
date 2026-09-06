@@ -62,7 +62,11 @@ export function App({ store, actions }: { store: Store; actions: Actions }) {
           onOpenProvider={() => setShowProvider(true)}
         />
       ) : (
-        <HomeScreen state={state} actions={chatActions} />
+        <HomeScreen
+          state={state}
+          actions={chatActions}
+          onOpenProvider={() => setShowProvider(true)}
+        />
       )}
       {showTodo ? <TodoPanel todos={state.todos} actions={chatActions} onClose={() => setShowTodo(false)} /> : null}
       {showPalette ? (
