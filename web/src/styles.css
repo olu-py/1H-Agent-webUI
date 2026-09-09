@@ -51,6 +51,10 @@
   /* motion */
   --transition: 150ms ease;
   --transition-fast: 100ms ease;
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-expand: 220ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   /* z-index scale */
   --z-menu: 25;
   --z-drawer: 30;
@@ -945,6 +949,9 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   max-width: 48rem;
   margin: 0 auto;
   padding: 0.3rem 0;
+  /* Rows are layout-independent blocks; containment shrinks the reflow scope
+     while the streaming tail grows every frame. */
+  contain: layout;
 }
 .msg { max-width: 48rem; }
 .msg-user {
@@ -1072,7 +1079,9 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   white-space: pre;
 }
 
-/* ---------- Thinking ---------- */
+/* ---------- Thinking ----------
+   A real button plus the shared `Collapse` (instead of `<details>`) so the
+   expand/collapse height animates cross-browser. */
 .thinking {
   margin: 0.35em 0;
   border: 1px solid var(--border);
@@ -1080,17 +1089,28 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   background: var(--surface);
   overflow: hidden;
 }
-.thinking summary {
+.thinking-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  border: none;
+  background: transparent;
   color: var(--muted);
   cursor: pointer;
   font-size: var(--text-xs);
   padding: 0.3em 0.7em;
   user-select: none;
-  display: flex;
-  align-items: center;
-  gap: 0.4em;
+  text-align: left;
+  transition: color var(--transition), background var(--transition);
 }
-.thinking[open] summary { border-bottom: 1px solid var(--border); }
+.thinking-head:hover { color: var(--fg); background: var(--surface-hover); }
+.thinking[data-open="true"] .thinking-head { border-bottom: 1px solid var(--border); }
+.thinking .chev {
+  display: inline-flex;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.thinking[data-open="true"] .chev { transform: rotate(90deg); }
 .thinking pre {
   white-space: pre-wrap;
   color: var(--muted);
@@ -1099,6 +1119,29 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   margin: 0;
   max-height: 20rem;
   overflow: auto;
+}
+
+/* Shared height-animated collapsible (Collapse.tsx). `grid-template-rows`
+   transitions between 0fr and 1fr — no JS measurement; browsers that cannot
+   animate grid tracks snap open/closed, which is still correct. The inner box
+   hides its content when closed (also removes it from the tab order). */
+.collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion-expand) var(--ease-out);
+}
+.collapse[data-open="true"] { grid-template-rows: 1fr; }
+.collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  /* Delay the visibility swap until the collapse finishes; on open it flips
+     immediately. */
+  transition: visibility 0s linear var(--motion-expand);
+}
+.collapse[data-open="true"] .collapse-inner {
+  visibility: visible;
+  transition: visibility 0s;
 }
 
 /* ---------- Tools ---------- */
@@ -1134,11 +1177,13 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   color: var(--muted);
   border: 1px solid var(--border);
   flex: none;
+  /* Status flips (running→done/failed) fade instead of snapping. */
+  transition: color var(--transition), background var(--transition), border-color var(--transition);
 }
 .tool-status-pill.running { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
 .tool-status-pill.done { color: var(--success); background: var(--success-soft); border-color: var(--success); }
 .tool-status-pill.failed, .tool-status-pill.rejected { color: var(--danger); background: var(--danger-soft); border-color: var(--danger); }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; transition: background var(--transition); }
 .dot.running { background: var(--accent); }
 .dot.done { background: var(--success); }
 .dot.failed, .dot.rejected { background: var(--danger); }
@@ -1206,7 +1251,7 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 }
 .session-item:hover { background: var(--surface-hover); }
 .session-item.active { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
-.session-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.session-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; transition: background var(--transition); }
 .session-dot.busy { background: var(--accent); animation: pulse 1.2s infinite; }
 .session-dot.approval { background: var(--danger); animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity: 0.3; } }
@@ -1564,4 +1609,52 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   .status-hint { display: none; }
   .activity-text { max-width: 8rem; }
   .context-bar { width: 3.5rem; }
+}
+
+/* ---------- Motion ----------
+   Entrance-only animations (no exit machinery): overlays and tail-appended
+   transcript rows fade/rise in once. All of it is disabled under
+   `prefers-reduced-motion` below. */
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+.modal-backdrop,
+.palette-backdrop { animation: fade-in var(--motion-fast) ease; }
+.modal-card,
+.palette-card,
+.todo-panel,
+.error-banner { animation: rise-in var(--motion-base) var(--ease-out); }
+/* Tail-appended synthetic rows only (see MessageList: the class is added
+   pre-paint, once per row key, while the list is bottom-pinned). */
+.message-row.row-enter { animation: rise-in var(--motion-base) var(--ease-out); }
+
+/* Theme cross-fade: applied to <html> only for the duration of a user theme
+   switch (see theme.ts) so ordinary streaming renders never pay for it. */
+html.theme-anim body,
+html.theme-anim .chat-header,
+html.theme-anim .chat-sidebar,
+html.theme-anim .messages,
+html.theme-anim .composer,
+html.theme-anim .composer-card,
+html.theme-anim .status-bar,
+html.theme-anim .thinking,
+html.theme-anim .tool-call,
+html.theme-anim .code-block,
+html.theme-anim .modal-card,
+html.theme-anim .todo-panel {
+  transition: background-color 300ms ease, color 300ms ease, border-color 300ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+  }
 }

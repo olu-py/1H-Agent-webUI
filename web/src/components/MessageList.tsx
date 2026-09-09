@@ -79,9 +79,21 @@ export function MessageList({
   const prevLayoutRef = useRef<number[] | null>(null);
   const prevMessagesRef = useRef<ViewMessage[] | null>(null);
   const prevScrollTopRef = useRef(0);
+  /** Synthetic rows already animated in; guards against replays when the
+   * virtualizer re-mounts a scrolled-out row. */
+  const animatedKeysRef = useRef<Set<string>>(new Set());
 
   hasMoreRef.current = hasMore;
   onLoadOlderRef.current = onLoadOlder;
+
+  // Expanding/collapsing a tool or thinking box above the tail must not be
+  // swallowed by bottom-pinning (the pinned auto-scroll would scroll the
+  // clicked header out of view). MessageItem only reports non-tail rows;
+  // following resumes automatically once the user scrolls back to the bottom
+  // (STICK_EPSILON in `onScroll`).
+  const handleContentToggle = useCallback(() => {
+    stickRef.current = false;
+  }, []);
 
   // Delegated copy for code blocks rendered via dangerouslySetInnerHTML: any
   // click on a `[data-copy]` button copies its sibling `.code-body`.
@@ -171,6 +183,7 @@ export function MessageList({
   const start = findRowContaining(layout, Math.max(0, scrollTop - OVERSCAN));
   const end = findRowFrom(layout, scrollTop + viewportH + OVERSCAN);
   const visible = messages.slice(start, end);
+  const tailKey = messages.length > 0 ? messages[messages.length - 1].key : null;
 
   // Auto-scroll to bottom while the user is pinned there. Pre-paint so a
   // growing last row never flashes past the bottom edge for a frame.
@@ -179,6 +192,22 @@ export function MessageList({
     if (!el || !stickRef.current) return;
     el.scrollTop = el.scrollHeight;
   }, [messages.length, totalHeight]);
+
+  // Entrance animation for tail-appended rows, applied pre-paint. Only
+  // synthetic rows animate: they are exactly the optimistic tail appends
+  // (user echo / tool rows / streaming rows). Persisted rows (`m-<id>`) -
+  // history pages, post-turn refetch replacements, session switches - never
+  // animate, and rows first seen while scrolled away from the bottom are
+  // skipped so scrolling them back into view never replays the fade.
+  useLayoutEffect(() => {
+    for (const m of visible) {
+      if (!m.key.startsWith("syn-")) continue;
+      if (animatedKeysRef.current.has(m.key)) continue;
+      animatedKeysRef.current.add(m.key);
+      if (!stickRef.current) continue;
+      rowEls.current.get(m.key)?.classList.add("row-enter");
+    }
+  });
 
   // Compensate the scroll position whenever offsets above the viewport change
   // (measured-height corrections, prepended older pages, eviction), keeping
@@ -237,6 +266,8 @@ export function MessageList({
                   // is the live one; an earlier segment's row stays collapsed.
                   m.streamingText === undefined
                 }
+                isTail={m.key === tailKey}
+                onContentToggle={handleContentToggle}
               />
             </div>
           ))}

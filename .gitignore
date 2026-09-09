@@ -9,6 +9,7 @@ Thumbs.db
 # Runtime state and secrets
 /.1h-agent/
 /.1h-agent-data/
+/.agent-data/
 /.runtime-data/
 /.1h-agent-*.md
 config.toml

@@ -38,6 +38,19 @@ export function applyTheme(pref: ThemePreference): void {
   }
 }
 
+/**
+ * Theme switch with a short cross-fade: the `theme-anim` class on `<html>`
+ * enables background/color transitions on the major surfaces (see the Motion
+ * section in styles.css) for the duration of the fade, so ordinary streaming
+ * renders never pay for those transitions.
+ */
+export function applyThemeAnimated(pref: ThemePreference): void {
+  const root = document.documentElement;
+  root.classList.add("theme-anim");
+  window.setTimeout(() => root.classList.remove("theme-anim"), 350);
+  applyTheme(pref);
+}
+
 /** Next preference when cycling the header button. */
 export function nextTheme(pref: ThemePreference): ThemePreference {
   return THEME_CYCLE[(THEME_CYCLE.indexOf(pref) + 1) % THEME_CYCLE.length];

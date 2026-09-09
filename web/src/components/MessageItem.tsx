@@ -1,6 +1,7 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { ViewMessage } from "../state/reducer";
 import { copyText } from "../lib/copy";
+import { Collapse } from "./Collapse";
 import { Markdown } from "./Markdown";
 import { Icon } from "./icons";
 
@@ -19,11 +20,24 @@ const TOOL_STATUS_LABEL: Record<string, string> = {
 export const MessageItem = memo(function MessageItem({
   message,
   liveThinking,
+  isTail,
+  onContentToggle,
 }: {
   message: ViewMessage;
   /** True while this message is the one currently streaming reasoning. */
   liveThinking?: boolean;
+  /** True while this message is the transcript tail (the auto-scroll
+   * follower owns tail toggles; anything above suspends pinning). */
+  isTail?: boolean;
+  /** Notified when the user expands/collapses a tool or thinking box so the
+   * list can suspend bottom-pinning for non-tail rows (keeps the clicked
+   * header visually anchored instead of being scrolled out of view). */
+  onContentToggle?: (key: string) => void;
 }) {
+  // Tail-row toggles keep the auto-scroll follower in charge (a tail box
+  // opening is exactly the new content to follow); any box above the tail
+  // suspends pinning so the clicked header stays visually anchored.
+  const handleToggle = isTail ? undefined : () => onContentToggle?.(message.key);
   switch (message.role) {
     case "user":
       return <UserMessage content={message.content} />;
@@ -32,7 +46,9 @@ export const MessageItem = memo(function MessageItem({
       const text = message.content + (message.streamingText ?? "");
       return (
         <div className="msg msg-assistant">
-          {thinking ? <ThinkingBlock text={thinking} live={!!liveThinking} /> : null}
+          {thinking ? (
+            <ThinkingBlock text={thinking} live={!!liveThinking} onToggle={handleToggle} />
+          ) : null}
           {message.partial ? <span className="badge partial">未完成</span> : null}
           {text ? (
             <Markdown text={text} />
@@ -45,7 +61,7 @@ export const MessageItem = memo(function MessageItem({
     case "thinking":
       return (
         <div className="msg msg-thinking">
-          <ThinkingBlock text={message.content} />
+          <ThinkingBlock text={message.content} onToggle={handleToggle} />
         </div>
       );
     case "system":
@@ -67,7 +83,7 @@ export const MessageItem = memo(function MessageItem({
         </div>
       );
     case "tool":
-      return <ToolMessage message={message} />;
+      return <ToolMessage message={message} onToggle={handleToggle} />;
     case "tool_calls":
       return (
         <div className="msg msg-tool">
@@ -78,6 +94,7 @@ export const MessageItem = memo(function MessageItem({
               args={call.arguments}
               status="done"
               result={message.outputs?.[call.id]}
+              onToggle={handleToggle}
             />
           ))}
         </div>
@@ -118,8 +135,18 @@ function UserMessage({ content }: { content: string }) {
 }
 
 /** Streaming thinking stays open while live, collapses when it completes, and
- * historical thinking messages can be toggled manually. */
-function ThinkingBlock({ text, live }: { text: string; live?: boolean }) {
+ * historical thinking messages can be toggled manually. Rendered as a button
+ * plus a `Collapse` (instead of `<details>`) so the height change animates
+ * cross-browser. */
+function ThinkingBlock({
+  text,
+  live,
+  onToggle,
+}: {
+  text: string;
+  live?: boolean;
+  onToggle?: () => void;
+}) {
   const [open, setOpen] = useState<boolean>(!!live);
   const prevLive = useRef(!!live);
   useEffect(() => {
@@ -129,17 +156,33 @@ function ThinkingBlock({ text, live }: { text: string; live?: boolean }) {
     }
   }, [live]);
   return (
-    <details className="thinking" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary>
-        {live ? <span className="dot spin" /> : <Icon name="chevronRight" size={12} />}
+    <div className="thinking" data-open={open ? "true" : "false"}>
+      <button
+        type="button"
+        className="thinking-head"
+        onClick={() => {
+          setOpen(!open);
+          onToggle?.();
+        }}
+        aria-expanded={open}
+      >
+        {live ? (
+          <span className="dot spin" />
+        ) : (
+          <span className="chev" aria-hidden="true">
+            <Icon name="chevronRight" size={12} />
+          </span>
+        )}
         思考{live ? "…" : ""}
-      </summary>
-      <pre>{text}</pre>
-    </details>
+      </button>
+      <Collapse open={open}>
+        <pre>{text}</pre>
+      </Collapse>
+    </div>
   );
 }
 
-function ToolMessage({ message }: { message: ViewMessage }) {
+function ToolMessage({ message, onToggle }: { message: ViewMessage; onToggle?: () => void }) {
   if (message.status === "generating") {
     return (
       <div className="msg msg-tool">
@@ -158,6 +201,7 @@ function ToolMessage({ message }: { message: ViewMessage }) {
       args={message.args}
       status={message.status ?? "done"}
       result={message.result ?? undefined}
+      onToggle={onToggle}
     />
   );
 }
@@ -167,21 +211,29 @@ function ToolCallRow({
   args,
   status,
   result,
+  onToggle,
 }: {
   name: string;
   args?: unknown;
   status: string;
   result?: string;
+  onToggle?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const running = status === "running" || status === "generating";
-  const argsText = typeof args === "string" ? args : args !== undefined ? JSON.stringify(args, null, 2) : "";
+  const argsText = useMemo(
+    () => (typeof args === "string" ? args : args !== undefined ? JSON.stringify(args, null, 2) : ""),
+    [args],
+  );
   return (
     <div className={`tool-call ${running ? "running" : ""}`}>
       <button
         type="button"
         className="tool-head"
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          setOpen(!open);
+          onToggle?.();
+        }}
         aria-expanded={open}
       >
         <span className={`dot ${running ? "spin" : status}`} />
@@ -190,7 +242,7 @@ function ToolCallRow({
           {TOOL_STATUS_LABEL[status] ?? status}
         </span>
       </button>
-      {open ? (
+      <Collapse open={open}>
         <div className="tool-body">
           {argsText ? (
             <>
@@ -205,7 +257,7 @@ function ToolCallRow({
             </>
           ) : null}
         </div>
-      ) : null}
+      </Collapse>
     </div>
   );
 }

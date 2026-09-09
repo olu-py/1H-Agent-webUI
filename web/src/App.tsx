@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Actions } from "./actions";
 import type { Store } from "./state/store";
 import { useChatActions, useUiState } from "./hooks";
-import { applyTheme, getThemePreference, nextTheme } from "./lib/theme";
+import { applyTheme, applyThemeAnimated, getThemePreference, nextTheme } from "./lib/theme";
 import type { ThemePreference } from "./lib/theme";
 import { ChatScreen } from "./components/ChatScreen";
 import { HomeScreen } from "./components/HomeScreen";
@@ -28,7 +28,9 @@ export function App({ store, actions }: { store: Store; actions: Actions }) {
   const [showPalette, setShowPalette] = useState(false);
   const [showProvider, setShowProvider] = useState(false);
 
-  // Apply the theme on mount and whenever it cycles.
+  // Apply the theme on mount and whenever it cycles (the effect is the
+  // bootstrap safety net; user cycles go through `applyThemeAnimated`, which
+  // cross-fades and then lands on the same attribute).
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
@@ -45,7 +47,11 @@ export function App({ store, actions }: { store: Store; actions: Actions }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const cycleTheme = () => setTheme((t) => nextTheme(t));
+  const cycleTheme = () => {
+    const next = nextTheme(theme);
+    applyThemeAnimated(next);
+    setTheme(next);
+  };
   const active = state.activeSession !== null;
   return (
     <>
