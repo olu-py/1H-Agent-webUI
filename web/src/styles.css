@@ -1067,26 +1067,38 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   border-top: 1px solid var(--border);
   margin: 0.8em 0;
 }
-/* Tables (markdown.ts wraps each in .table-wrap for narrow panes) */
+/* Tables (markdown.ts wraps each in .table-wrap for narrow panes).
+   Frame matches .code-block (border + var(--radius-md)); separate borders because
+   border-collapse: collapse ignores border-radius. Grid via right/bottom cell borders. */
 .markdown .table-wrap {
   overflow-x: auto;
   margin: 0.5em 0;
   max-width: 100%;
 }
 .markdown table.md-table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   width: 100%;
   font-size: 0.92em;
   line-height: 1.45;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
 .markdown table.md-table th,
 .markdown table.md-table td {
-  border: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
   padding: 0.3em 0.6em;
   text-align: left;
   vertical-align: top;
 }
 .markdown table.md-table th { background: var(--surface); font-weight: 600; }
+.markdown table.md-table th:last-child,
+.markdown table.md-table td:last-child { border-right: none; }
+.markdown table.md-table tbody tr:last-child td { border-bottom: none; }
+/* Header-only table (streaming transient): no stray line above the frame edge. */
+.markdown table.md-table:has(tbody:empty) th { border-bottom: none; }
 .markdown .ta-center { text-align: center; }
 .markdown .ta-right { text-align: right; }
 /* Task list items: no bullet, checkbox in its place */
@@ -1732,6 +1744,7 @@ html.theme-anim .status-bar,
 html.theme-anim .thinking,
 html.theme-anim .tool-call,
 html.theme-anim .code-block,
+html.theme-anim .markdown table.md-table,
 html.theme-anim .modal-card,
 html.theme-anim .todo-panel {
   transition: background-color 300ms ease, color 300ms ease, border-color 300ms ease;
