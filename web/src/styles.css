@@ -680,6 +680,8 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
      4px top padding keeps the card and status line reading as one unit. */
   padding: var(--space-3) var(--space-4) 5px;
   background: var(--bg);
+  /* Anchoring context for the slash popup floating above the card. */
+  position: relative;
 }
 /* Hollow card: transparent fill with only the outline border, so the
    composer reads as an open frame over the page background. */
@@ -1550,7 +1552,13 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
 }
-.palette-item.selected { background: var(--surface-hover); border-color: var(--accent); }
+.palette-item.selected {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+  /* Codex-style selection: a thin accent bar on the leading edge, shared by
+     the modal palette rows and the composer slash popup rows. */
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 .palette-item code { color: var(--accent); flex: none; font-size: 0.9em; }
 .palette-label { font-weight: 600; flex: none; }
 .palette-desc {
@@ -1601,6 +1609,31 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   margin: 0 0.2em;
 }
 
+/* ---------- Composer slash popup (Codex-CLI-style inline palette) ---------- */
+/* A borderless floating list above the composer card: the popup shares the
+   card's 48rem column (left/right insets + centered max-width), needs no
+   backdrop (the page stays live), and reuses the `.palette-*` row styles
+   above so both command surfaces render identically. */
+.slash-popup {
+  position: absolute;
+  /* Float 8px above the card top edge: the card starts after the composer's
+     12px top padding, so its top sits at (100% - 12px) from the bottom. */
+  bottom: calc(100% - var(--space-3) + var(--space-2));
+  left: var(--space-4);
+  right: var(--space-4);
+  margin: 0 auto;
+  max-width: 48rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-height: 45vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  z-index: var(--z-palette);
+}
+
 /* ---------- Drawer (narrow screens) ---------- */
 @media (max-width: 860px) {
   .chat-toggle-sessions { display: inline-flex; }
@@ -1638,6 +1671,7 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 .palette-backdrop { animation: fade-in var(--motion-fast) ease; }
 .modal-card,
 .palette-card,
+.slash-popup,
 .todo-panel,
 .error-banner { animation: rise-in var(--motion-base) var(--ease-out); }
 /* Tail-appended synthetic rows only (see MessageList: the class is added
