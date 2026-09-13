@@ -266,3 +266,64 @@ describe("paragraphs and misc", () => {
     expect(renderMarkdown(undefined as unknown as string)).toBe("");
   });
 });
+
+describe("streaming fade tail", () => {
+  function spanStyles(html: string): { opacity: number; blur: number }[] {
+    return [
+      ...html.matchAll(/class="fch" style="opacity:([\d.]+);filter:blur\(([\d.]+)px\)"/g),
+    ].map((m) => ({ opacity: parseFloat(m[1]), blur: parseFloat(m[2]) }));
+  }
+
+  it("wraps the trailing N chars with graded opacity and blur", () => {
+    const html = renderMarkdown("0123456789", 0, 4);
+    expect(html).toContain("<p>012345");
+    expect(html).toMatch(/<span class="fch"[^>]*>6<\/span>/);
+    expect(html.endsWith("</span></p>")).toBe(true);
+    const styles = spanStyles(html);
+    expect(styles).toHaveLength(4);
+    // DOM order is oldest → newest: opacity decreases, blur increases.
+    for (let k = 1; k < styles.length; k++) {
+      expect(styles[k - 1].opacity).toBeGreaterThan(styles[k].opacity);
+      expect(styles[k - 1].blur).toBeLessThan(styles[k].blur);
+    }
+    expect(styles[0].opacity).toBeLessThan(1); // window edge not fully solid
+    expect(styles[3].opacity).toBeGreaterThanOrEqual(0.15); // newest visible
+    expect(styles[3].blur).toBeCloseTo(1.4); // newest most blurred
+  });
+
+  it("keeps entities whole while fading", () => {
+    const html = renderMarkdown("a<b'c", 0, 3);
+    expect(html).toContain("&#39;");
+    expect((html.match(/<span class="fch"/g) ?? []).length).toBe(3);
+  });
+
+  it("fades inside closing tags of lists, code blocks and tables", () => {
+    const list = renderMarkdown("- 一二三", 0, 2);
+    expect(list).toContain('<span class="fch"');
+    expect(norm(list).endsWith("</li></ul>")).toBe(true);
+
+    const code = renderMarkdown("```\nabc\n```", 0, 2);
+    expect(code).toContain('<span class="fch"');
+    expect(norm(code).endsWith("</code></pre>")).toBe(true);
+
+    const table = renderMarkdown("| a | b |\n| --- | --- |\n| 1 | 2 |", 0, 2);
+    expect(table).toContain('<span class="fch"');
+    expect(norm(table).endsWith("</tbody></table></div>")).toBe(true);
+  });
+
+  it("reaches into blockquotes via the outer pass", () => {
+    const html = renderMarkdown("> 引用文字", 0, 2);
+    expect(html).toContain('<span class="fch"');
+    expect(norm(html).endsWith("</blockquote>")).toBe(true);
+  });
+
+  it("skips fade when there is no trailing text", () => {
+    expect(renderMarkdown("---", 0, 3)).not.toContain("fch");
+    expect(renderMarkdown("- [ ] ", 0, 3)).not.toContain("fch");
+  });
+
+  it("fadeTail=0 leaves output byte-identical", () => {
+    const md = "段落 **bold** `code` [链接](https://x.com)";
+    expect(renderMarkdown(md, 0, 0)).toBe(renderMarkdown(md));
+  });
+});

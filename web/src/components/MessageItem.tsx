@@ -44,6 +44,7 @@ export const MessageItem = memo(function MessageItem({
     case "assistant": {
       const thinking = message.streamingThinking ?? message.thinking;
       const text = message.content + (message.streamingText ?? "");
+      const streaming = message.streamingText !== undefined;
       return (
         <div className="msg msg-assistant">
           {thinking ? (
@@ -51,7 +52,7 @@ export const MessageItem = memo(function MessageItem({
           ) : null}
           {message.partial ? <span className="badge partial">未完成</span> : null}
           {text ? (
-            <Markdown text={text} />
+            <Markdown text={text} fadeTail={streaming} />
           ) : message.streamingText === undefined && !message.thinking ? (
             <em className="dim">…</em>
           ) : null}
