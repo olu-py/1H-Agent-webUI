@@ -11,7 +11,8 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "types": ["node"]
+    "types": ["node"],
+    "tsBuildInfoFile": "node_modules/.cache/tsconfig.node.tsbuildinfo"
   },
   "include": ["vite.config.ts"]
 }

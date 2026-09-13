@@ -50,6 +50,15 @@ cd 1H-Agent-webUI
 cargo run --locked --package protium-web --bin 1h-agent-web -- --workspace /path/to/project
 ```
 
+Windows 一键启动（自动安装前端依赖、增量构建、起服务并打开浏览器；重复运行会幂等复用已运行的实例）：
+
+```powershell
+scripts\start-demo.bat    # demo 模式：隔离数据 .1h-agent-data\demo，无需 API key 即可浏览界面
+scripts\start-formal.bat  # formal 模式：workspace 为仓库根，数据用系统默认位置
+```
+
+Linux/macOS 对应 `bash scripts/start-web.sh`（demo 模式）。本地运行产生的状态目录及其清理方式见 [`.agents/repo-layout.md`](.agents/repo-layout.md)。
+
 构建 release 二进制：
 
 ```bash
@@ -140,7 +149,7 @@ native_web_search = "disabled"
 
 ## AI 维护文档
 
-维护或开发本项目的 AI Agent 请先读取 [AGENTS.md](AGENTS.md)，再按任务路由只加载相关专题指南。该入口提供架构、源码路由、安全边界和分级验证规则。
+维护或开发本项目的 AI Agent 请先读取 [AGENTS.md](AGENTS.md)，再按任务路由只加载相关专题指南。该入口提供架构、源码路由、安全边界和分级验证规则。目录结构、文件归位与生成物清理规范见 [`.agents/repo-layout.md`](.agents/repo-layout.md)。
 
 ## 第三方声明
 

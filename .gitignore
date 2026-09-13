@@ -1,4 +1,11 @@
+# Ignore 规则按「来源」分组；每条防护的完整解释、清理方法见
+# .agents/repo-layout.md 的生成物地图。
+
+# ---- 构建产物 ----
+# cargo 构建目录（debug/release 与测试产物）。
 /target/
+
+# ---- 编辑器 / 系统噪音 ----
 /.idea/
 /.vscode/
 *.swp
@@ -6,12 +13,21 @@
 .DS_Store
 Thumbs.db
 
-# Runtime state and secrets
+# ---- 运行时状态（本地运行 1h-agent-web / 启动脚本产生）----
+# core 数据目录的 workspace 相对回退值。
 /.1h-agent/
+# start-web.ps1 / start-web.sh 的 demo/formal 本地状态根（会话库、pid、日志）。
 /.1h-agent-data/
+# 历史遗留：曾手工以该名建过数据目录；保留防护防复发。
 /.agent-data/
+# 历史遗留运行目录名，保留防护。
 /.runtime-data/
+# 历史遗留：根目录一次性导出文件，保留防护。
 /.1h-agent-*.md
+# smoke-web.sh 的临时工作区（正常退出自清，被强杀时残留）。
+/.smoke-test-*/
+
+# ---- 密钥与本地配置（绝不入库）----
 config.toml
 .env
 .env.*
@@ -20,29 +36,31 @@ config.toml
 *.db-wal
 *.log
 
-# ts-rs default export directory (used when TS_RS_EXPORT_DIR is unset during
-# cargo test; the committed bindings live in web/ts/)
+# ---- 工具泄漏防护 ----
+# ts-rs 在未设 TS_RS_EXPORT_DIR 的 cargo test（本地 path-patch core 联调）时
+# 的默认导出目录；正式 bindings 只经 scripts/core-bindings.sh 进 web/ts/。
 /bindings/
 **/bindings/
+# 本地联调 core 时重定向的 CARGO_TARGET_DIR。
+/.cargo-targets-core/
 
-# Frontend build output
+# ---- 前端 ----
 /web/node_modules/
+# Windows 多盘环境下 pnpm 在仓库内的回退 store；正常应使用盘根共享 store
+# （见 .agents/repo-layout.md「pnpm store：每台机器的行为说明」）。
 /.pnpm-store/
 *.tsbuildinfo
 # web/dist/ is committed: the single Rust binary embeds it via rust-embed, so
 # `cargo build` works without a prior frontend build. CI rebuilds it fresh.
 
-# Local cargo target dir used when running protium-core tests with a
-# redirected CARGO_TARGET_DIR (kept out of the workspace `target/`).
-/.cargo-targets-core/
-
-# Packaging output
+# ---- 打包输出与验证证据 ----
 /dist/
 *.deb
 *.msi
 *.zip
 *.tar.gz
-
-# GUI test evidence (not project source)
 /gui-test-screenshots/
+
+# ---- 根目录防污染 ----
+# 计划/设计文档统一放 design/（带状态头），根目录不再新增。
 PLAN.md
