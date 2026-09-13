@@ -2,15 +2,15 @@ import type { ApprovalDto, SessionStateDto } from "../types";
 import type { SessionNode } from "../lib/session-tree";
 import type { ChatActions } from "../hooks";
 import { buildSessionTree } from "../lib/session-tree";
-import { sessionListStatus } from "../lib/session-status";
+import { sessionDotKind } from "../lib/session-status";
 import { Icon } from "./icons";
 import { SessionMenu } from "./SessionMenu";
 
 /**
  * Session tree for the desktop sidebar / mobile drawer: nests fork sessions by
- * `parent_id` and shows busy, approval-waiting, live child progress and status
- * text per session. Each row carries a hover-revealed action menu (fork /
- * delete) on its right.
+ * `parent_id` and indicates per-session state with the leading status light
+ * only (busy / approval / error via `sessionDotKind`). Each row carries a
+ * hover-revealed action menu (fork / delete) on its right.
  */
 export function SessionTree({
   sessions,
@@ -34,13 +34,14 @@ export function SessionTree({
     const session = node.session;
     const isActive = session.id === active;
     const isApproval = approval?.session_id === session.id;
-    // The plain "就绪" ready marker is only shown on the active session; parked
-    // sessions keep live/error statuses but not the idle ready label.
-    const status = sessionListStatus(
+    // The status light is the row's only state indicator: live background
+    // labels keep it busy/approval/error even while the snapshot's busy flag
+    // lags behind (see sessionDotKind).
+    const dotKind = sessionDotKind(
       statuses[session.id] || session.status || "",
-      isActive,
+      session.busy,
+      isApproval,
     );
-    const showBusy = session.busy && !isApproval;
     return (
       <li key={session.id}>
         <div className="session-row">
@@ -51,9 +52,8 @@ export function SessionTree({
             style={{ paddingLeft: `${0.5 + depth * 0.9}rem` }}
             title={session.title || "(无标题)"}
           >
-            <span className={`session-dot ${isApproval ? "approval" : showBusy ? "busy" : ""}`} />
+            <span className={`session-dot ${dotKind}`} />
             <span className="session-title">{session.title || "(无标题)"}</span>
-            {status ? <span className="session-status">{status}</span> : null}
             {session.parent_id ? (
               <span className="session-child" title="子会话">
                 <Icon name="fork" size={12} />

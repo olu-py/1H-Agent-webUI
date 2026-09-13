@@ -65,7 +65,7 @@ export function ChatScreen({
         <aside className={`chat-sidebar ${showSessions ? "open" : ""}`}>
           <div className="sidebar-brand">
             <span className="brand-logo" aria-hidden="true">
-              <Icon name="sparkles" size={14} />
+              <Icon name="sparkles" size={16} />
             </span>
             <span className="brand-name">1H-Agent</span>
             <button
