@@ -71,4 +71,6 @@ browser --REST/SSE--> AppHandle --command--> App/SessionRuntime --> AgentRunner 
 | 工具/存储/安全/进程/HTTP 面或跨模块 | `cargo clippy --all-targets --all-features --locked -- -D warnings`、`cargo test --quiet --all-features --locked` |
 | 发布 | 读取 Release 专题并运行其完整验证 |
 
+Windows 沙箱下命令被拒（EPERM、拒绝访问、StandardOutputEncoding）时先查 [维护环境](.agents/maintenance-env.md) 的已知边界与解法，再按其提权策略处理。
+
 保持改动聚焦，复用现有 helper，不清理无法证明无用的文件。未运行的检查必须在最终回复说明；不要因 Cargo 锁或冷缓存终止正常构建。

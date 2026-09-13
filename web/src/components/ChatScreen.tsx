@@ -10,8 +10,9 @@ import { StatusBar } from "./StatusBar";
 import { Icon } from "./icons";
 
 /**
- * Main chat screen: CSS-grid shell (session-tree sidebar + message stream),
- * a slide-in drawer for the sidebar on narrow screens, a merged status bar
+ * Main chat screen: CSS-grid shell with a full-height session-tree sidebar
+ * beside a right-hand column (chat header above the message stream), a
+ * slide-in drawer for the sidebar on narrow screens, a merged status bar
  * and the composer card. The composer is keyed by the active session so it
  * remounts (and refocuses) after switching sessions.
  */
@@ -60,54 +61,6 @@ export function ChatScreen({
 
   return (
     <section className="chat">
-      <header className="chat-header">
-        <div className="chat-title">
-          <span className="chat-session-title">{active?.title ?? "(无标题)"}</span>
-          <span className="chat-session-meta meta">
-            {active?.phase ?? ""}
-            {active?.busy ? " · 运行中" : ""}
-          </span>
-        </div>
-        <div className="chat-controls">
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={onTogglePalette}
-            title="命令面板（Ctrl/Cmd+K）"
-            aria-label="命令面板"
-          >
-            <Icon name="palette" size={16} />
-          </button>
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={onToggleTodo}
-            title="任务清单"
-            aria-label="任务清单"
-          >
-            <Icon name="todo" size={16} />
-          </button>
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={onCycleTheme}
-            title={themeTitle}
-            aria-label={themeTitle}
-          >
-            <Icon name={theme === "light" ? "sun" : theme === "dark" ? "moon" : "sparkles"} size={16} />
-          </button>
-          <button
-            type="button"
-            className="icon-btn chat-toggle-sessions"
-            onClick={onToggleSessions}
-            title="切换会话"
-            aria-label="切换会话"
-          >
-            <Icon name="menu" size={16} />
-          </button>
-        </div>
-      </header>
-
       <div className="chat-layout">
         <aside className={`chat-sidebar ${showSessions ? "open" : ""}`}>
           <div className="sidebar-brand">
@@ -153,31 +106,81 @@ export function ChatScreen({
           </div>
         </aside>
 
-        <main className="chat-main">
-          {state.lastError ? <p className="error-banner">{state.lastError}</p> : null}
-          <MessageList
-            messages={viewMessages}
-            hasMore={state.hasMore}
-            onLoadOlder={() => void actions.loadOlder()}
-            activity={state.activity}
-          />
-          <Composer
-            key={state.activeSession ?? "none"}
-            mode={state.mode}
-            busy={state.busy}
-            provider={state.provider}
-            model={state.model}
-            actions={actions}
-            onOpenProvider={onOpenProvider}
-          />
-          <StatusBar
-            activity={state.activity}
-            context={state.context}
-            contextOverlayTokens={state.contextOverlayTokens}
-            usage={state.usage}
-            status={state.status}
-          />
-        </main>
+        <div className="chat-column">
+          <header className="chat-header">
+            <div className="chat-title">
+              <span className="chat-session-title">{active?.title ?? "(无标题)"}</span>
+              <span className="chat-session-meta meta">
+                {active?.phase ?? ""}
+                {active?.busy ? " · 运行中" : ""}
+              </span>
+            </div>
+            <div className="chat-controls">
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={onTogglePalette}
+                title="命令面板（Ctrl/Cmd+K）"
+                aria-label="命令面板"
+              >
+                <Icon name="palette" size={16} />
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={onToggleTodo}
+                title="任务清单"
+                aria-label="任务清单"
+              >
+                <Icon name="todo" size={16} />
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={onCycleTheme}
+                title={themeTitle}
+                aria-label={themeTitle}
+              >
+                <Icon name={theme === "light" ? "sun" : theme === "dark" ? "moon" : "sparkles"} size={16} />
+              </button>
+              <button
+                type="button"
+                className="icon-btn chat-toggle-sessions"
+                onClick={onToggleSessions}
+                title="切换会话"
+                aria-label="切换会话"
+              >
+                <Icon name="menu" size={16} />
+              </button>
+            </div>
+          </header>
+
+          <main className="chat-main">
+            {state.lastError ? <p className="error-banner">{state.lastError}</p> : null}
+            <MessageList
+              messages={viewMessages}
+              hasMore={state.hasMore}
+              onLoadOlder={() => void actions.loadOlder()}
+              activity={state.activity}
+            />
+            <Composer
+              key={state.activeSession ?? "none"}
+              mode={state.mode}
+              busy={state.busy}
+              provider={state.provider}
+              model={state.model}
+              actions={actions}
+              onOpenProvider={onOpenProvider}
+            />
+            <StatusBar
+              activity={state.activity}
+              context={state.context}
+              contextOverlayTokens={state.contextOverlayTokens}
+              usage={state.usage}
+              status={state.status}
+            />
+          </main>
+        </div>
       </div>
     </section>
   );
