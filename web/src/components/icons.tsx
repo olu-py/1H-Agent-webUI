@@ -25,6 +25,7 @@ export type IconName =
   | "trash"
   | "play"
   | "undo"
+  | "refresh"
   | "dots"
   | "build"
   | "plan"
@@ -133,6 +134,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M3 13a9 9 0 1 0 3-7.7L3 8" />
     </>
   ),
+  refresh: (
+    <>
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v6h-6" />
+    </>
+  ),
   dots: (
     <>
       <circle cx="12" cy="5" r="1" />
@@ -188,6 +195,7 @@ const TITLES: Partial<Record<IconName, string>> = {
   trash: "删除",
   play: "开始",
   undo: "撤销",
+  refresh: "刷新",
   dots: "更多",
   build: "构建模式",
   plan: "计划模式",

@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
 import type { ChatActions } from "../hooks";
 import type { UiState } from "../state/reducer";
-import { AGENT_MODES, modeInfo } from "../lib/modes";
+import { modeInfo } from "../lib/modes";
 import { sessionListStatus } from "../lib/session-status";
 import { Icon } from "./icons";
+import { ModeSegmented } from "./ModeSegmented";
 import { SessionMenu } from "./SessionMenu";
 import { ProviderSwitcher } from "./ProviderSwitcher";
 
@@ -16,8 +17,9 @@ const HOME_CHIPS: Array<{ label: string; prompt: string }> = [
 
 /**
  * Home screen (immersive layout): vertically centered hero + a hollow card
- * mirroring the chat composer (borderless textarea; mode pills, provider·model
- * pill and the round send button share one row), a status-line under the card
+ * mirroring the chat composer (borderless textarea; the same animated mode
+ * segments via the shared `ModeSegmented`, provider·model control and the
+ * rounded send button share one row), a status-line under the card
  * mirroring the status bar (mode description + shortcut hints), quick-start
  * chips, and recent sessions rendered as the sidebar's `.session-item` rows.
  * No session is created here — the first message lazily creates it and
@@ -78,24 +80,7 @@ export function HomeScreen({
               }}
             />
             <div className="home-row">
-              <div className="seg" role="group" aria-label="默认模式">
-                {AGENT_MODES.map((m) => {
-                  const active = m.key === pendingMode;
-                  return (
-                    <button
-                      key={m.key}
-                      type="button"
-                      className={`seg-item ${active ? "active" : ""} mode-${m.tone}`}
-                      title={modeInfo(m.key)?.description}
-                      aria-pressed={active}
-                      onClick={() => setPendingMode(m.key)}
-                    >
-                      <Icon name={m.icon} size={12} />
-                      {m.label}
-                    </button>
-                  );
-                })}
-              </div>
+              <ModeSegmented value={pendingMode} ariaLabel="默认模式" onSelect={setPendingMode} />
               <ProviderSwitcher
                 provider={state.provider}
                 model={state.model}

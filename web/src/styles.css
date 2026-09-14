@@ -26,10 +26,27 @@
   --danger-soft: rgba(220, 38, 38, 0.12);
   --code-bg: #f2f4f8;
   --shadow-color: rgba(16, 24, 40, 0.14);
-  /* radius */
-  --radius-sm: 6px;
-  --radius-md: 9px;
-  --radius-lg: 14px;
+  /* Mode-segmented thumb: the gradient's depth end mixes toward fg here (and
+     toward bg in the dark themes below) while the on-thumb label color flips,
+     keeping label contrast in both themes. */
+  --seg-mix: var(--fg);
+  --seg-mix-pct: 72%;
+  --seg-on-thumb: #ffffff;
+  /* radius ladder — semantics (review: design/radius-system-review.md):
+     sm   nested inner corners / inline elements (code, kbd, mini rows)
+     md   controls (buttons, inputs, segmented band, code blocks, rows);
+          at standard control heights (~2rem) 16px clamps to half-height, so
+          controls read as continuous capsules — the iOS 26 Liquid Glass look
+     lg   surfaces (cards, modals, panels, popups, user bubble)
+     full capsule semantics only (chips, tags, status pills) — stays a true
+          stadium even under the global squircle rule
+     50%  indicator dots; 0 = flush inputs whose frame owns the corner.
+     Concentric rule for flush-nested boxes: inner = outer - edge distance
+     (padding + border); the 4px grid usually lands on a token naturally.
+     2026-09-14 iOS 26 bump: sm 8→12, md 12→16, lg 24→28. */
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 28px;
   --radius-full: 999px;
   /* 4px spacing scale */
   --space-1: 4px;
@@ -38,11 +55,14 @@
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
-  /* type scale */
-  --text-xs: 0.72rem;
-  --text-sm: 0.82rem;
-  --text-md: 0.92rem;
-  --text-lg: 1.06rem;
+  /* type scale — 12/14/16/18/24px ladder. The transcript body baseline is
+     1rem (16px, inherited from body), so --text-md renders input surfaces
+     at the same size as the text they produce, and each neighbouring tier
+     differs by a full 2px (the minimum clearly readable step for CJK). */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
   --text-xl: 1.5rem;
   /* shadows */
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
@@ -54,7 +74,10 @@
   --motion-fast: 120ms;
   --motion-base: 180ms;
   --motion-expand: 220ms;
+  --motion-slide: 280ms;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Mild overshoot for the segmented thumb's geometry (transform/width). */
+  --ease-spring: cubic-bezier(0.3, 1.28, 0.42, 1);
   /* z-index scale */
   --z-menu: 25;
   --z-drawer: 30;
@@ -85,6 +108,11 @@
   --danger-soft: rgba(248, 113, 113, 0.16);
   --code-bg: #131926;
   --shadow-color: rgba(0, 0, 0, 0.5);
+  /* Dark tones are already bright: keep the gradient close to the tone so the
+     dark on-thumb label keeps contrast (see the light-theme counterpart). */
+  --seg-mix: var(--bg);
+  --seg-mix-pct: 82%;
+  --seg-on-thumb: #0b1220;
 }
 
 /* Pre-JS default: follow the OS when no theme attribute is set yet. */
@@ -108,6 +136,9 @@
     --danger-soft: rgba(248, 113, 113, 0.16);
     --code-bg: #131926;
     --shadow-color: rgba(0, 0, 0, 0.5);
+    --seg-mix: var(--bg);
+    --seg-mix-pct: 82%;
+    --seg-on-thumb: #0b1220;
   }
 }
 
@@ -169,17 +200,54 @@ pre {
 .dim { color: var(--muted); }
 .meta { font-size: var(--text-xs); color: var(--muted); }
 
+/* ---------- Squircle corners (Apple-style continuous corners) ---------- */
+/* Decision 2026-09-13 (design/squircle-demo.html, scheme A), extended to all
+   tiers 2026-09-14 (design/radius-system-review.md): continuous curvature is
+   the GLOBAL default, matching Apple's practice — `corner-shape: squircle`
+   (= superellipse(2)) applies to every rounded box so controls and surfaces
+   share one curvature language; plain border-radius jumps from 0 to 1/r at
+   each tangent point. Sizes stay driven by the radius tokens; this only
+   swaps the corner shape. Progressive enhancement behind one @supports
+   guard: browsers without corner-shape (Firefox/Safari today) keep circular
+   corners. Chrome/Edge 139+. corner-shape does not inherit, hence the
+   universal selector; boxes without border-radius are unaffected.
+   Capsules (--radius-full) and 50% dots are re-asserted as true circles
+   below — their whole point is geometric roundness. */
+@supports (corner-shape: squircle) {
+  *,
+  ::before,
+  ::after {
+    corner-shape: squircle;
+  }
+  /* True stadiums and circles stay geometric: capsule ends and indicator
+     dots must read as perfect circles, not softened superellipses. */
+  .chip,
+  .provider-tag,
+  .tool-status-pill,
+  .todo-status,
+  .msg-compaction .markdown,
+  .badge.partial,
+  .home-statusline .mode-dot,
+  .activity-dot,
+  .dot,
+  .session-dot,
+  .provider-dot {
+    corner-shape: round;
+  }
+}
+
 /* ---------- Buttons ----------
-   Shared control size: text-sm + 0.4em vertical padding lands these at the
-   same ~2rem height as `.icon-btn`, so every primary interactive control in
-   the app (header icons, session rows, action buttons) shares one height
-   band. The composer row keeps its own denser pill band (see `.seg`). */
+   Shared control size: text-sm (14px, 21px line box) + 0.32em vertical
+   padding + 2px border lands these at the same ~2rem height as `.icon-btn`,
+   so every primary interactive control in the app (header icons, session
+   rows, action buttons) shares one height band. The composer row keeps its
+   own denser control band (see `.seg`). */
 button.primary {
   background: var(--accent);
   border: 1px solid var(--accent);
   color: var(--on-accent);
   border-radius: var(--radius-md);
-  padding: 0.4em 0.9em;
+  padding: 0.32em 0.9em;
   font-size: var(--text-sm);
   transition: filter var(--transition);
 }
@@ -189,7 +257,7 @@ button.danger {
   border: 1px solid var(--danger);
   color: #fff;
   border-radius: var(--radius-md);
-  padding: 0.4em 0.9em;
+  padding: 0.32em 0.9em;
   font-size: var(--text-sm);
 }
 button.ghost {
@@ -197,7 +265,7 @@ button.ghost {
   border: 1px solid var(--border);
   color: var(--fg);
   border-radius: var(--radius-md);
-  padding: 0.4em 0.9em;
+  padding: 0.32em 0.9em;
   font-size: var(--text-sm);
   transition: background var(--transition);
 }
@@ -338,8 +406,8 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 }
 .home-input:focus { outline: none; box-shadow: none; }
 .home-input::placeholder { color: var(--muted); }
-/* One control row inside the card, like `.composer-row`: mode pills left,
-   provider·model pill right, round send button (all shared classes). */
+/* One control row inside the card, like `.composer-row`: mode segments left,
+   provider·model control right, rounded send button (all shared classes). */
 .home-row {
   display: flex;
   align-items: center;
@@ -440,39 +508,108 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 }
 
 /* ---------- Segmented control (modes) ---------- */
+/* Registered gradient-stop colors: registering them as <color> is what makes
+   the thumb's duotone gradient interpolable (plain custom properties cannot
+   transition), so the thumb's hue morphs while it slides. Browsers without
+   @property keep the slide but snap the color. */
+@property --seg-tone-a {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+@property --seg-tone-b {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
 .seg {
+  position: relative;
   display: inline-flex;
   flex-wrap: wrap;
   padding: 2px;
   gap: 2px;
   background: var(--surface-hover);
   border: 1px solid var(--border);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
+  /* The tone stops are re-declared per data-tone below; transitioning the
+     registered colors here morphs the thumb gradient (and its glow) with the
+     same easing family as the slide. */
+  transition:
+    --seg-tone-a var(--motion-slide) var(--ease-out),
+    --seg-tone-b var(--motion-slide) var(--ease-out);
+}
+/* Active tone drives the thumb's duotone gradient: the identity color plus a
+   depth end mixed toward the theme fg (light) / bg (dark). */
+.seg[data-tone="build"] {
+  --seg-tone-a: var(--accent);
+  --seg-tone-b: color-mix(in oklab, var(--accent) var(--seg-mix-pct), var(--seg-mix));
+}
+.seg[data-tone="plan"] {
+  --seg-tone-a: var(--warn);
+  --seg-tone-b: color-mix(in oklab, var(--warn) var(--seg-mix-pct), var(--seg-mix));
+}
+.seg[data-tone="explore"] {
+  --seg-tone-a: var(--success);
+  --seg-tone-b: color-mix(in oklab, var(--success) var(--seg-mix-pct), var(--seg-mix));
+}
+.seg[data-tone="cluster"] {
+  --seg-tone-a: var(--danger);
+  --seg-tone-b: color-mix(in oklab, var(--danger) var(--seg-mix-pct), var(--seg-mix));
 }
 .seg-item {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   gap: 0.35em;
   border: none;
   background: transparent;
-  border-radius: var(--radius-full);
-  padding: 0.28em 0.7em;
+  /* Nested radius: the band is `--radius-md` on its border-box and items sit
+     3px inside it (2px padding + 1px border), so 3px less keeps the curves
+     concentric. The sliding thumb below uses the same value. */
+  border-radius: calc(var(--radius-md) - 3px);
+  padding: 0.25em 0.7em;
   font-size: var(--text-xs);
   color: var(--muted);
   white-space: nowrap;
-  transition: background var(--transition), color var(--transition);
+  transition: color var(--motion-slide) var(--ease-out);
 }
 .seg-item:hover:not(:disabled) { color: var(--fg); }
 .seg-item.active {
-  background: var(--bg);
-  color: var(--fg);
-  box-shadow: var(--shadow-sm);
+  background: transparent;
+  color: var(--seg-on-thumb);
   font-weight: 600;
 }
-.seg-item.active.mode-build { color: var(--accent); }
-.seg-item.active.mode-plan { color: var(--warn); }
-.seg-item.active.mode-explore { color: var(--success); }
-.seg-item.active.mode-cluster { color: var(--danger); }
+/* The generic hover rule above is (0,3,0) and would repaint the active label
+   mid-gradient; keep the on-thumb color while hovering the active item. */
+.seg-item.active:hover:not(:disabled) { color: var(--seg-on-thumb); }
+/* Sliding gradient thumb: positioned from CSS vars measured by ModeSegmented
+   (x/y/w/h/o), spring-eased transform + width; the gradient colors come from
+   the registered tone vars declared on the band. The solid background-color
+   is the fallback when color-mix() is unavailable (background-image then
+   drops out and a flat tone thumb remains). */
+.seg-thumb {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  width: var(--seg-w, 0px);
+  height: var(--seg-h, 0px);
+  transform: translate3d(var(--seg-x, 0px), var(--seg-y, 0px), 0);
+  border-radius: calc(var(--radius-md) - 3px);
+  background-color: var(--seg-tone-a);
+  background-image: linear-gradient(135deg, var(--seg-tone-a), var(--seg-tone-b));
+  box-shadow:
+    0 1px 6px color-mix(in srgb, var(--seg-tone-a) 40%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  opacity: var(--seg-o, 0);
+  pointer-events: none;
+  transition:
+    transform var(--motion-slide) var(--ease-spring),
+    width var(--motion-slide) var(--ease-spring),
+    opacity var(--motion-base) var(--ease-out);
+  animation: fade-in var(--motion-base) var(--ease-out);
+}
 
 /* ---------- Chat shell ---------- */
 .chat {
@@ -646,23 +783,21 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   text-overflow: ellipsis;
   max-width: 16rem;
 }
-.context-meter {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4em;
-  flex: none;
+/* Circular context meter: a 14px SVG ring whose full detail lives in the
+   hover title instead of inline text (the old bar + verbose label). */
+.context-meter { display: inline-flex; align-items: center; flex: none; }
+.context-ring { display: block; }
+.context-ring-track,
+.context-ring-fill {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
 }
-.context-bar {
-  width: 5rem;
-  height: 4px;
-  background: var(--surface-hover);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-}
-.context-bar-fill { height: 100%; border-radius: var(--radius-full); }
-.context-meter.ok .context-bar-fill { background: var(--success); }
-.context-meter.warn .context-bar-fill { background: var(--warn); }
-.context-meter.danger .context-bar-fill { background: var(--danger); }
+.context-ring-track { stroke: var(--surface-hover); }
+.context-ring-fill { transition: stroke-dashoffset var(--transition); }
+.context-meter.ok .context-ring-fill { stroke: var(--success); }
+.context-meter.warn .context-ring-fill { stroke: var(--warn); }
+.context-meter.danger .context-ring-fill { stroke: var(--danger); }
 .usage { font-variant-numeric: tabular-nums; flex: none; }
 .status-meta { margin-left: auto; display: inline-flex; align-items: center; gap: 0.5em; flex: none; }
 /* Composer keyboard shortcuts pinned to the status bar's bottom-right. */
@@ -706,18 +841,19 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  /* Same 16px horizontal inset as the textarea's padding so the mode pills
+  /* Same 16px horizontal inset as the textarea's padding so the mode segments
      line up with the typed text above them. */
   padding: 0 var(--space-4) var(--space-3);
 }
 .composer-modes { min-width: 0; }
-/* Round send button sized to the mode/provider pills' height (~1.85rem) so
-   its edge lines up with their rounded caps; corner radius uses the same
-   `--radius-full` token as the pills (a circle on a square box). */
+/* Send button sized to the mode/provider controls' height (~1.875rem) so its
+   edge lines up with theirs; shares `--radius-md` with them (rounded square
+   on a square box) — the footer moved off the pill language with the
+   enlarged radius ladder. */
 .send-btn {
-  width: 1.85rem;
-  height: 1.85rem;
-  border-radius: var(--radius-full);
+  width: 1.875rem;
+  height: 1.875rem;
+  border-radius: var(--radius-md);
   border: none;
   padding: 0;
   display: inline-flex;
@@ -726,12 +862,12 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   flex: none;
   transition: background var(--transition), transform var(--transition);
 }
-/* `button.primary`/`button.danger` (0,1,1) would override border-radius
-   (rounded square), border and padding; re-assert the circle on the
+/* `button.primary`/`button.danger` (0,1,1) would override border-radius,
+   border and padding; re-assert the shared `--radius-md` rounding on the
    variants (0,2,0). */
 .send-btn.primary,
 .send-btn.danger {
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
   border: none;
   padding: 0;
 }
@@ -755,11 +891,11 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   border: 1px solid var(--border);
   background: var(--surface-hover);
   color: var(--muted);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
   /* Matches the mode segmented control's height: the `.seg` wraps its items
-     with 2px padding + 1px border, so a standalone pill with a 1px border
-     needs ~0.45em vertical padding to line up at the same size. */
-  padding: 0.45em 0.7em;
+     with 2px padding + 1px border, so a standalone control with a 1px border
+     needs ~0.42em vertical padding to line up at the same size. */
+  padding: 0.42em 0.7em;
   font-size: var(--text-xs);
   transition: color var(--transition), border-color var(--transition);
 }
@@ -981,7 +1117,9 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   color: var(--on-accent);
   border-radius: var(--radius-lg);
   border-bottom-right-radius: var(--radius-sm);
-  padding: 0.5em 0.85em;
+  /* User-tuned compact bubble: tight 0.3em vertical padding with the
+     0.81em horizontal kept from the golden-ratio pass. */
+  padding: 0.3em 0.81em;
   max-width: 80%;
   overflow-wrap: anywhere;
 }
@@ -1037,10 +1175,19 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 .markdown ul, .markdown ol { margin: 0.35em 0; padding-left: 1.4em; }
 .markdown li { margin: 0.2em 0; }
 .markdown a { color: var(--accent); }
-.markdown h1, .markdown h2, .markdown h3 { margin: 0.7em 0 0.35em; line-height: 1.3; }
-.markdown h1 { font-size: 1.25em; }
-.markdown h2 { font-size: 1.12em; }
-.markdown h3 { font-size: 1em; }
+/* Heading ladder over the 1rem body baseline: 24 / 20.8 / 18.4px for
+   h1–h3 (each step ≥2.4px, clearly readable in CJK), h4 back at body size
+   and distinguished by weight alone, h5/h6 stepping down for de-emphasized
+   run-in heads. Explicit font-weight: 700 documents the hierarchy signal
+   instead of relying on the UA default. */
+.markdown h1, .markdown h2, .markdown h3 {
+  margin: 0.7em 0 0.35em;
+  line-height: 1.3;
+  font-weight: 700;
+}
+.markdown h1 { font-size: 1.5em; }
+.markdown h2 { font-size: 1.3em; }
+.markdown h3 { font-size: 1.15em; }
 .markdown :not(pre) > code {
   background: var(--code-bg);
   border-radius: var(--radius-sm);
@@ -1056,8 +1203,9 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 .markdown h4, .markdown h5, .markdown h6 {
   margin: 0.7em 0 0.35em;
   line-height: 1.3;
+  font-weight: 700;
 }
-.markdown h4 { font-size: 0.95em; }
+.markdown h4 { font-size: 1em; }
 .markdown h5 { font-size: 0.9em; }
 .markdown h6 { font-size: 0.85em; color: var(--muted); }
 .markdown del { color: var(--muted); }
@@ -1312,7 +1460,7 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   border: 1px solid transparent;
   background: transparent;
   border-radius: var(--radius-md);
-  padding: 0.4em 0.6em;
+  padding: 0.32em 0.6em;
   font-size: var(--text-sm);
   color: var(--fg);
   transition: background var(--transition);
@@ -1605,7 +1753,10 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   border: 1px solid transparent;
   background: transparent;
   padding: 0.45em 0.75rem;
-  border-radius: var(--radius-md);
+  /* Concentric nesting (design/radius-system-review.md): this row sits flush
+     inside lg (28px) surfaces with a var(--space-2) horizontal inset, so the
+     inner corner is 28px − 8px. Shared by the slash popup rows. */
+  border-radius: calc(var(--radius-lg) - var(--space-2));
   font-size: var(--text-sm);
 }
 .palette-item.selected {
@@ -1710,7 +1861,6 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   .sidebar-close { display: inline-flex; }
   .status-hint { display: none; }
   .activity-text { max-width: 8rem; }
-  .context-bar { width: 3.5rem; }
 }
 
 /* ---------- Motion ----------

@@ -14,6 +14,7 @@ function fakeTransport(overrides: Partial<Record<keyof import("../src/transport/
   const activateSession = vi.fn();
   const setProvider = vi.fn();
   const providerSettings = vi.fn();
+  const providerModels = vi.fn();
   const subscribe = vi.fn().mockReturnValue({ unsubscribe: vi.fn() });
   return {
     snapshot,
@@ -25,6 +26,7 @@ function fakeTransport(overrides: Partial<Record<keyof import("../src/transport/
     activateSession,
     setProvider,
     providerSettings,
+    providerModels,
     subscribe,
     ...overrides,
   } as unknown as import("../src/transport/transport").Transport;
@@ -219,6 +221,40 @@ describe("actions.setProvider / loadProviderSettings", () => {
     await actions.loadProviderSettings();
 
     expect(store.getState().providerSettings).toEqual(settings);
+  });
+
+  it("dispatches providerModels into the store and forwards refresh", async () => {
+    const transport = fakeTransport();
+    const models = {
+      models: [{ id: "gpt-5-mini", context_window_tokens: 400000, max_output_tokens: null }],
+      fetched_at: 1718000000,
+    };
+    (transport.providerModels as ReturnType<typeof vi.fn>).mockResolvedValue(models);
+    const store = createStore();
+    const actions = createActions(transport, store);
+
+    // The refreshed DTO is returned so focused callers (the fetch-window
+    // button) can read it without waiting on a store re-render.
+    await expect(actions.loadProviderModels()).resolves.toEqual(models);
+    expect(transport.providerModels).toHaveBeenCalledWith(false);
+    expect(store.getState().providerModels).toEqual(models);
+
+    await expect(actions.loadProviderModels(true)).resolves.toEqual(models);
+    expect(transport.providerModels).toHaveBeenCalledWith(true);
+  });
+
+  it("swallows providerModels failures: metadata is best effort", async () => {
+    const transport = fakeTransport();
+    (transport.providerModels as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("gateway unreachable"),
+    );
+    const store = createStore();
+    const actions = createActions(transport, store);
+
+    await expect(actions.loadProviderModels(true)).resolves.toBeNull();
+
+    expect(store.getState().providerModels).toBeNull();
+    expect(store.getState().lastError).toBeNull();
   });
 });
 

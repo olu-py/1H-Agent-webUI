@@ -55,7 +55,10 @@ Windows 一键启动（自动安装前端依赖、增量构建、起服务并打
 ```powershell
 scripts\start-demo.bat    # demo 模式：隔离数据 .1h-agent-data\demo，无需 API key 即可浏览界面
 scripts\start-formal.bat  # formal 模式：workspace 为仓库根，数据用系统默认位置
+scripts\restart-demo.bat  # demo 模式一键重启：停止运行中的实例、增量重建后重启（改完代码后刷新页面查看效果）
 ```
+
+改完代码用 `scripts\restart-demo.bat` 一键重启；任一 start 脚本也可透传 `-Restart`（如 `scripts\start-formal.bat -Restart`）。重启优先沿用原端口；构建失败不会停止在跑的实例。
 
 Linux/macOS 对应 `bash scripts/start-web.sh`（demo 模式）。本地运行产生的状态目录及其清理方式见 [`.agents/repo-layout.md`](.agents/repo-layout.md)。
 

@@ -63,6 +63,7 @@ describe("reducer", () => {
       used_tokens: 1024,
       output_reserve_tokens: 512,
       safe_input_tokens: 6656,
+      window_source: "provider",
       estimated: true,
     };
     const partial = { content: "未完成回复", created_at: "2025-01-01T00:00:00Z" };
@@ -72,7 +73,24 @@ describe("reducer", () => {
     });
     expect(s.context?.used_tokens).toBe(1024);
     expect(s.context?.estimated).toBe(true);
+    expect(s.context?.window_source).toBe("provider");
     expect(s.assistantPartial?.content).toBe("未完成回复");
+  });
+
+  it("stores the fetched provider model list", () => {
+    const models = {
+      models: [
+        { id: "gateway-model", context_window_tokens: 256000, max_output_tokens: 8192 },
+        { id: "plain-model", context_window_tokens: null, max_output_tokens: null },
+      ],
+      fetched_at: 1718000000,
+    };
+    let s = reduce(initialState, { type: "providerModels", models });
+    expect(s.providerModels?.models).toHaveLength(2);
+    expect(s.providerModels?.models[0].id).toBe("gateway-model");
+    // A null DTO (before the first load / after a failed refresh) is not an
+    // empty list — the picker falls back to the static preset lists.
+    expect(initialState.providerModels).toBeNull();
   });
 
   it("resets per-session view state when the active session changes", () => {
@@ -162,7 +180,7 @@ describe("reducer", () => {
       type: "event",
       envelope: env(12, "s1", {
         type: "context_updated",
-        budget: { context_window_tokens: 8192, used_tokens: 2000, output_reserve_tokens: 512, safe_input_tokens: 5680, estimated: false },
+        budget: { context_window_tokens: 8192, used_tokens: 2000, output_reserve_tokens: 512, safe_input_tokens: 5680, window_source: "config", estimated: false },
       }),
     });
     expect(s.context?.used_tokens).toBe(2000);
@@ -175,7 +193,7 @@ describe("reducer", () => {
       type: "event",
       envelope: env(11, "s1", {
         type: "context_updated",
-        budget: { context_window_tokens: 8192, used_tokens: 2000, output_reserve_tokens: 512, safe_input_tokens: 5680, estimated: false },
+        budget: { context_window_tokens: 8192, used_tokens: 2000, output_reserve_tokens: 512, safe_input_tokens: 5680, window_source: "config", estimated: false },
       }),
     });
     expect(s.contextOverlayTokens).toBe(0);
@@ -193,7 +211,7 @@ describe("reducer", () => {
       type: "event",
       envelope: env(15, "s1", {
         type: "context_updated",
-        budget: { context_window_tokens: 8192, used_tokens: 2200, output_reserve_tokens: 512, safe_input_tokens: 5480, estimated: false },
+        budget: { context_window_tokens: 8192, used_tokens: 2200, output_reserve_tokens: 512, safe_input_tokens: 5480, window_source: "config", estimated: false },
       }),
     });
     expect(s.contextOverlayTokens).toBe(0);

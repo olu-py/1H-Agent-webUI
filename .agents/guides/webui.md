@@ -26,6 +26,10 @@ HTTP/SSE 服务面、v2 事件序列化、审批待决表、静态前端资源�
 - 线协议是对外契约，v2 起破坏性升级（移除 v1 路由与旧 DTO）；加法演进：新增 Event 类型/字段须容忍旧 UI 忽略，禁止改语义或复用旧 type。契约见 .agents/guides/ui-contract.md。
 - Web 消费端无关：浏览器经 HTTP/SSE 消费；未来进程内 TUI/Desktop 复用同一 `AppHandle`/`EventBridge`/v2 `Event` 契约，禁止第二套命令/事件通路。契约与接入点见 .agents/guides/ui-contract.md。
 
+- 圆角阶梯的唯一数值与语义出处是 `web/src/styles.css` `:root` 注释块（评审依据见本地产物 design/radius-system-review.md，git 忽略）；调整阶梯只改 token，嵌套半径用 `calc(外 - inset)` 写法自动跟随。
+- 全局连续曲率：`corner-shape: squircle` 经单一 @supports 渐进增强套用于所有圆角盒；胶囊（--radius-full）与 50% 圆点在同块重申 `round` 保持真圆/真胶囊。
+- 贴角嵌套必须同心：内半径 = 外半径 - 边到边距离（padding + border）；不贴角的普通嵌套用同档即可。
+
 ## 诊断
 
 | 症状 | 检查顺序 |

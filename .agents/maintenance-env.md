@@ -14,6 +14,8 @@
 | pwsh 字面量断言误判：`-like '*[AGENTS.md](AGENTS.md)*'` 判为不匹配（复刻文档检查时曾因此误报 README 缺链接） | `-like` 把 `[...]` 当通配符字符类，`-match` 把它当正则字符组，均非字面语义 | 字面量包含判断用 `.Contains()`，或 `[regex]::Escape($pat)` 配 `-match`；断言失败先怀疑匹配语义再怀疑内容 |
 | 新增目录类 ignore 防护后用空目录探针验证，`git status --ignored` 不显示该目录 | git 只跟踪文件，空目录不进入任何状态 | 探针目录里先放一个文件再验证；验证后清理探针文件与目录 |
 | 沙箱内 `pnpm store path` / `pnpm install` 结果不可信：解析到仓库内 `.pnpm-store` 回退位，或直接 EPERM | pnpm 解析 store 前要在盘根等位置写临时探测文件找「第一个可链接目录」；沙箱仅工作区可写，探测结果落在仓库根 | store 迁移、重装、验证一律在完整权限下执行；回退成因与清理流程见 `.agents/repo-layout.md` 的 pnpm store 节 |
+| `Select-String`/`Get-Content` 对仓库内 UTF-8 无 BOM 的中文文档做模式匹配静默失配（复刻 `check-agent-docs.sh` 断言「## 适用范围」查不到、行数统计虽对但内容比对全空） | Windows PowerShell 5.1 对无 BOM 文件按 ANSI/GBK 解码，中文字节按错误码页比对 | 文本读取与断言一律用 `[System.IO.File]::ReadAllText/ReadAllLines($path, [System.Text.Encoding]::UTF8)`（或 `-contains` 精确行比对），不用 `Get-Content`/`Select-String` 直读 |
+| `Get-Content -Raw` 后 `.Replace("`n…")` 在 CRLF 文件上是静默无操作（内容不变）；PS 5.1 `Set-Content -Encoding UTF8` 又会写入 BOM、有把整文件重写的风险 | 字符串模式只含 LF 与实际 CRLF 字节不符；PS 5.1 的 UTF8 编码器固定带 BOM | 文本修改一律用文件编辑工具；必须脚本化时按字节处理（同时匹配 `` `r`n ``/`` `n ``）并用 `[System.IO.File]::WriteAllText($path, $text, [System.Text.UTF8Encoding]::new($false))` 写回，改后 `git diff --stat` 复核无整文件重写 |
 | `pnpm config set … --global` 报 `The configured global bin directory … is not in PATH`，配置未写入 | pnpm 11 要求先 `pnpm setup`（全局 bin 入 PATH）才允许该命令写配置 | 不必为此跑 setup：pnpm 11 全局配置文件是 `%LOCALAPPDATA%\pnpm\config\config.yaml`，键用 **camelCase**（如 `storeDir`；`~/.npmrc`、`config\rc` 与 kebab-case 键均实测无效）。共享 store 诉求默认行为已满足；显式 `storeDir` 会让沙箱内 install 硬失败，勿设 |
 
 ## 可靠默认

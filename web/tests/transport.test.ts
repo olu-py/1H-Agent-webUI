@@ -110,6 +110,23 @@ describe("HttpSseTransport REST contract", () => {
     expect(init.method).toBeUndefined();
   });
 
+  it("gets the provider model list, appending refresh=true only on demand", async () => {
+    const models = {
+      models: [
+        { id: "deepseek-v4-flash", context_window_tokens: 1000000, max_output_tokens: 8192 },
+      ],
+      fetched_at: 1718000000,
+    };
+    // A fresh Response per call: a body can only be read once.
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(models)));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const transport = new HttpSseTransport();
+    await expect(transport.providerModels()).resolves.toEqual(models);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v2/config/provider/models");
+    await transport.providerModels(true);
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/v2/config/provider/models?refresh=true");
+  });
+
   it("posts the provider edit with snake_case fields and omits an empty api_key", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}, 202));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -145,6 +162,21 @@ describe("HttpSseTransport REST contract", () => {
       kind: undefined,
       api_key: "sk-secret",
     });
+  });
+
+  it("sends an explicit context window only when provided", async () => {
+    // A fresh Response per call: a body can only be read once.
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({}, 202)));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const transport = new HttpSseTransport();
+    // Omitted: the field must be absent so the merged profile keeps its value.
+    await transport.setProvider("custom", "gateway-model");
+    let body = JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body));
+    expect("context_window_tokens" in body).toBe(false);
+    // Provided: transmitted as snake_case.
+    await transport.setProvider("custom", "gateway-model", { contextWindowTokens: 128000 });
+    body = JSON.parse(String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body));
+    expect(body.context_window_tokens).toBe(128000);
   });
 });
 

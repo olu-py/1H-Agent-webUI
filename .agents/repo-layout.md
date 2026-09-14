@@ -12,8 +12,7 @@
 | `.github/release-notes/` | 每个 tag 一份 `vX.Y.Z.md`，Release 流水线按名取用 | 新版本发布前必须补齐 |
 | `config/` | 仅 `config.example.toml`（配置样例与默认值快照） | 真实 `config.toml` 落在数据目录或系统配置目录，绝不入库 |
 | `crates/1h-agent-web/` | WebUI 适配器 crate（HTTP/SSE 服务、鉴权、内嵌前端） | UI 无关逻辑在独立的 core 仓库 |
-| `design/` | 设计/计划文档归档 | 文件头必须带「来源日期 + 状态」；交付后状态改为「已归档」，不再是维护依据 |
-| `scripts/` | 平铺 9 个脚本（见下表），被 CI、README、根协议引用 | 不建子目录 |
+| `scripts/` | 平铺 10 个脚本（见下表），被 CI、README、根协议引用 | 不建子目录 |
 | `web/src/`、`web/tests/` | React 源码与单测 | 网络访问只出现在 `src/transport/` |
 | `web/ts/` | 从 core 同步的 TS 类型（ts-rs 生成） | 只经 `scripts/core-bindings.sh` 更新，禁止手改；CI 做漂移检查 |
 | `web/dist/` | 前端构建产物（rust-embed 内嵌进二进制） | 只经 `pnpm build` 产生并随源码提交；CI 重建后 `git diff --exit-code` 校验 |
@@ -22,7 +21,7 @@
 
 | 类别 | 脚本 | 说明 |
 | --- | --- | --- |
-| 启动 | `start-web.ps1`（demo/formal 双模式）、`start-web.sh`（demo）、`start-demo.bat`、`start-formal.bat` | 构建过期产物、起服务、开浏览器；幂等复用已运行实例 |
+| 启动 | `start-web.ps1`（demo/formal 双模式，`-Restart` 停旧换新）、`start-web.sh`（demo）、`start-demo.bat`、`start-formal.bat`、`restart-demo.bat`（demo 一键重启，优先沿用原端口） | 构建过期产物、起服务、开浏览器；幂等复用已运行实例，`-Restart`/`restart-demo.bat` 停旧实例换新（构建失败不影响在跑实例） |
 | 校验 | `check-agent-docs.sh`（文档一致性，CI）、`core-bindings.sh sync/check`（bindings 同步与漂移检查）、`smoke-web.sh`（无密钥端到端冒烟） | 冒烟用 `/.smoke-test-$$/` 临时目录，正常退出自清 |
 | 打包 | `package-windows.ps1`、`package-linux.sh` | 默认输出到仓库外 `../1H-Agent-Release` |
 
@@ -40,6 +39,7 @@
 | `dist/`、`*.deb`、`*.msi`、`*.zip`、`*.tar.gz` | 本地打包（package 脚本输出在仓库外，此项防手滑） | 可删 |
 | `gui-test-screenshots/` | 人工 GUI 验证截图 | 可删 |
 | `.smoke-test-*/` | `smoke-web.sh` 被强杀时的残留 | 可删 |
+| `design/` | 项目维护中间产物：设计/计划文档与实施记录（文件头带「来源日期 + 状态」，完成即改「已归档」），git 忽略不上传，仅本地留存 | 可整目录删除；删除后历史结论以 `.agents` 指南与已发布代码为准，重新引用时依据本地副本 |
 | `config.toml`、`.env*`、`*.db*`、`*.log` | 密钥与运行态 | **绝不入库**；按需清理 |
 | `/.1h-agent/`、`/.agent-data/`、`/.runtime-data/`、`/.1h-agent-*.md` | 历史遗留名，现行脚本与 core 均不再产生 | 出现即删（.gitignore 保留防护防复发） |
 
@@ -56,7 +56,7 @@
 | --- | --- | --- |
 | 维护/开发脚本 | `scripts/` 平铺 | 命名沿用 `动词-对象` 风格；更新 README/CI 引用 |
 | 专题维护指南 | `.agents/guides/` | 需含五节结构、≤50 行，并在根协议路由表登记；`check-agent-docs.sh` 强校验 |
-| 设计/计划文档 | `design/` | 文件头带「来源 + 状态」；完成即改「已归档」 |
+| 设计/计划文档 | `design/` | 本地维护中间产物，git 忽略不上传；文件头带「来源 + 状态」；完成即改「已归档」 |
 | 发布说明 | `.github/release-notes/vX.Y.Z.md` | 与 `Cargo.toml` 版本一致 |
 | TS 协议类型 | 只经 `scripts/core-bindings.sh sync` 进 `web/ts/` | CI 漂移检查兜底 |
 | 前端构建产物 | 只经 `pnpm build` 进 `web/dist/` | 不手改、不手造 |

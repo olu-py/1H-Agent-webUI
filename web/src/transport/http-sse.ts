@@ -3,6 +3,7 @@ import type {
   AppSnapshotV2,
   Envelope,
   MessagePage,
+  ProviderModelsDto,
   ProviderSetOptions,
   ProviderSettingsDto,
 } from "../types";
@@ -117,12 +118,20 @@ export class HttpSseTransport implements Transport {
     return this.json("/api/v2/config/provider");
   }
 
+  providerModels(refresh = false): Promise<ProviderModelsDto> {
+    const query = refresh ? "?refresh=true" : "";
+    return this.json(`/api/v2/config/provider/models${query}`);
+  }
+
   setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void> {
     return this.withBody("/api/v2/config/provider", {
       preset,
       model,
       base_url: options?.baseUrl,
       kind: options?.kind,
+      // Send only when set: an explicit window override for models the
+      // metadata chain cannot resolve.
+      context_window_tokens: options?.contextWindowTokens,
       // Send only when non-empty: the key is write-only and must never be
       // needlessly transmitted (let alone stored or echoed).
       api_key: options?.apiKey?.trim() ? options.apiKey : undefined,

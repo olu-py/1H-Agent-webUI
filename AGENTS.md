@@ -11,7 +11,7 @@ runtime: 单个 Rust/Tokio 进程，内嵌 HTTP 服务 + 前端静态资源；SQ
 authority: 源码 > config/config.example.toml > .github/workflows > 本文件 > 专题指南
 scope: WebUI（REST/SSE + React 静态前端）、模型流、受控工具、多会话、AI 集群、跨平台发布
 excluded: 运行时 Node/Electron/捆绑 Chromium、动态插件、图片和语音能力
-migration: 多界面低耦合改造已完成并归档（design/webui-migration.md）；设计与计划文档统一放 design/（带状态头，完成即归档）
+migration: 多界面低耦合改造已完成并归档（design/webui-migration.md，本地留存）；design/ 为本地维护中间产物（git 忽略不上传），设计与计划文档放 design/（带状态头，完成即归档）
 ```
 
 - 三个发布程序运行时均不依赖 Node；构建期允许 pnpm/TypeScript/Vite（`web/`，锁定版本，产物内嵌）。不引入运行时 Node、Electron、捆绑 Chromium、动态插件 ABI 或后台轮询（SSE 是服务端推送，浏览器 EventSource 重连不算轮询）。所有路径、网络、工具、进程、缓存、channel 和输出必须有边界、取消与释放路径。
@@ -60,7 +60,7 @@ browser --REST/SSE--> AppHandle --command--> App/SessionRuntime --> AgentRunner 
 - Web 工具每次重定向都校验 HTTP/HTTPS 和公网地址；HTTP 服务默认仅回环监听，非回环必须启用 token 鉴权；危险操作始终经过 mode、安全分类与审批；审批可"本会话放行"（进程内不落盘，config deny 仍压过它）。
 - API Key 只来自环境变量或系统钥匙串，不进入 TOML、SQLite、日志、导出、模型上下文或任何 HTTP 响应。
 - 外部进程必须支持超时、输出截断、取消和进程树清理；取消端点产生可观察终态。
-- 新增容量或并发前定义硬上限、截断、取消与释放；未知模型使用显式窗口或 Provider 感知注册表。
+- 新增容量或并发前定义硬上限、截断、取消与释放；未知模型使用显式窗口或元数据解析链（发现值越界拒绝、拉取事件驱动不轮询），不猜窗口。
 
 ## 实施与验证
 

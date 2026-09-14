@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatActions } from "../hooks";
 import type { UiState } from "../state/reducer";
+import type { ProviderModelDto } from "../types";
 import {
   PROVIDER_KINDS,
   PROVIDERS,
@@ -9,6 +10,32 @@ import {
   providerKey,
 } from "../lib/providers";
 import { Icon } from "./icons";
+
+/** Compact token count for option labels ("128k", "1m"). */
+function compactTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `${Math.floor(tokens / 1_000_000)}m`;
+  if (tokens >= 1_000) return `${Math.floor(tokens / 1_000)}k`;
+  return String(tokens);
+}
+
+/** Option label: the model id plus its discovered context window, when the
+ * provider's `GET /models` (or models.dev) reported one. */
+function modelLabel(model: ProviderModelDto): string {
+  const window = model.context_window_tokens;
+  return window != null ? `${model.id} · ${compactTokens(Number(window))}` : model.id;
+}
+
+/** Option tooltip: full metadata when present. */
+function modelTitle(model: ProviderModelDto): string {
+  const parts = [model.id];
+  if (model.context_window_tokens != null) {
+    parts.push(`窗口 ${Number(model.context_window_tokens).toLocaleString()} tokens`);
+  }
+  if (model.max_output_tokens != null) {
+    parts.push(`最大输出 ${Number(model.max_output_tokens).toLocaleString()} tokens`);
+  }
+  return parts.join(" · ");
+}
 
 /**
  * Provider settings dialog, rendered at the app level (like the approval
@@ -43,10 +70,17 @@ export function ProviderSettingsModal({
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [windowTokens, setWindowTokens] = useState("");
+  const [fetchingWindow, setFetchingWindow] = useState(false);
+  const [windowNote, setWindowNote] = useState<string | null>(null);
 
   // Load the settings view whenever the dialog opens.
   useEffect(() => {
     void actions.loadProviderSettings();
+    // Model list: instant cache read; the refresh button refetches from the
+    // provider endpoint / models.dev.
+    void actions.loadProviderModels();
     // `actions` is a stable object created once in main.tsx.
     // eslint isn't configured in this project; the empty dependency list is
     // intentional: fetch exactly once per mount.
@@ -81,6 +115,8 @@ export function ProviderSettingsModal({
     const savedProfile = saved.find((p) => p.preset === key);
     setBaseUrl(savedProfile?.base_url ?? defaultBaseUrl(key));
     setKind(savedProfile?.kind ?? "responses");
+    setWindowTokens("");
+    setWindowNote(null);
     const models = modelsForProvider(key);
     if (!models.includes(selectedModel)) {
       setSelectedModel(savedProfile?.model ?? models[0] ?? "");
@@ -92,9 +128,14 @@ export function ProviderSettingsModal({
     if (!model) return;
     setSaving(true);
     try {
+      const window = windowTokens ? Number(windowTokens) : undefined;
       await actions.setProvider(preset, model, {
         baseUrl: baseUrl.trim(),
         kind,
+        // Send only when the user filled it: an explicit window for models
+        // the metadata chain cannot resolve (the core clamps the bounds).
+        contextWindowTokens:
+          window != null && Number.isFinite(window) && window > 0 ? window : undefined,
         apiKey: apiKey.trim() || undefined,
       });
       setApiKey("");
@@ -104,7 +145,68 @@ export function ProviderSettingsModal({
     }
   };
 
-  const models = modelsForProvider(preset);
+  const refreshModels = async () => {
+    setLoadingModels(true);
+    try {
+      await actions.loadProviderModels(true);
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  // "获取" next to the window input: force-refreshes the metadata (provider
+  // /models + models.dev), then fills the input from the refreshed entry for
+  // the selected model. Only the active profile can be queried — the core
+  // fetches for the active provider's base URL.
+  const fetchWindow = async () => {
+    setFetchingWindow(true);
+    setWindowNote(null);
+    try {
+      const dto = await actions.loadProviderModels(true);
+      const model = dto?.models.find((m) => m.id === selectedModel.trim());
+      if (model?.context_window_tokens != null) {
+        setWindowTokens(String(model.context_window_tokens));
+        setWindowNote("已获取；保留则作为显式值优先生效，清空则交给自动解析。");
+      } else {
+        setWindowNote(
+          dto
+            ? "接口与社区库均未报告该模型窗口，请手填。"
+            : "刷新失败：网关不可达或密钥未配置。",
+        );
+      }
+    } finally {
+      setFetchingWindow(false);
+    }
+  };
+
+  // The fetched model list belongs to the *active* profile's base URL (the
+  // core fetches `GET {base_url}/models for the active provider), so it only
+  // applies while the form edits that same profile — preset and base URL both
+  // matching. Otherwise the static preset list is the whole offer.
+  const fetchedApplies =
+    settings != null &&
+    providerKey(settings.active.preset) === preset &&
+    settings.active.base_url === baseUrl.trim();
+  const fetchedModels = fetchedApplies ? (state.providerModels?.models ?? []) : [];
+  const staticModels = modelsForProvider(preset).filter(
+    (id) => !fetchedModels.some((m) => m.id === id),
+  );
+  const models: ProviderModelDto[] = [
+    ...fetchedModels,
+    ...staticModels.map((id) => ({
+      id,
+      context_window_tokens: null,
+      max_output_tokens: null,
+    })),
+  ];
+  // The explicit-window input is offered only when nothing resolves the
+  // window for the selected model: no fetched metadata and no static preset
+  // entry (the built-in registry covers those). Known models never need it,
+  // and an unnecessary explicit window would override discovery.
+  const selected = selectedModel.trim();
+  const selectedWindowKnown =
+    fetchedModels.some((m) => m.id === selected && m.context_window_tokens != null) ||
+    modelsForProvider(preset).includes(selected);
   const keyResolved = connected.includes(preset);
 
   return (
@@ -153,21 +255,35 @@ export function ProviderSettingsModal({
             <label className="provider-field">
               <span className="provider-modal-label">模型</span>
               {models.length > 0 ? (
-                <select
-                  className="provider-model-select"
-                  value={models.includes(selectedModel) ? selectedModel : ""}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  aria-label="模型"
-                >
-                  {models.includes(selectedModel) ? null : (
-                    <option value="">{selectedModel || "（自定义模型）"}</option>
-                  )}
-                  {models.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
+                <span className="provider-key-row">
+                  <select
+                    className="provider-model-select"
+                    value={models.some((m) => m.id === selectedModel) ? selectedModel : ""}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    aria-label="模型"
+                  >
+                    {models.some((m) => m.id === selectedModel) ? null : (
+                      <option value="">{selectedModel || "（自定义模型）"}</option>
+                    )}
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id} title={modelTitle(m)}>
+                        {modelLabel(m)}
+                      </option>
+                    ))}
+                  </select>
+                  {fetchedApplies ? (
+                    <button
+                      type="button"
+                      className="ghost provider-key-toggle"
+                      disabled={loadingModels}
+                      onClick={() => void refreshModels()}
+                      title="从 Provider 接口与 models.dev 刷新模型列表"
+                      aria-label="刷新模型列表"
+                    >
+                      <Icon name="refresh" size={12} />
+                    </button>
+                  ) : null}
+                </span>
               ) : (
                 <input
                   className="provider-model-input"
@@ -178,6 +294,40 @@ export function ProviderSettingsModal({
                 />
               )}
             </label>
+            {!selectedWindowKnown || windowTokens !== "" ? (
+              <label className="provider-field">
+                <span className="provider-modal-label">上下文窗口</span>
+                <span className="provider-key-row">
+                  <input
+                    className="provider-model-input"
+                    inputMode="numeric"
+                    value={windowTokens}
+                    onChange={(e) => {
+                      setWindowTokens(e.target.value.replace(/[^0-9]/g, ""));
+                      setWindowNote(null);
+                    }}
+                    placeholder="该模型窗口未知；填写显式 tokens（如 128000），留空保持自动"
+                    aria-label="显式上下文窗口 tokens"
+                  />
+                  {fetchedApplies ? (
+                    <button
+                      type="button"
+                      className="ghost provider-key-toggle"
+                      disabled={fetchingWindow}
+                      onClick={() => void fetchWindow()}
+                      title="从 Provider 接口与 models.dev 获取该模型的窗口"
+                      aria-label="获取上下文窗口"
+                    >
+                      <Icon name="refresh" size={12} />
+                    </button>
+                  ) : null}
+                </span>
+                <p className="provider-key-hint">
+                  {windowNote ??
+                    "接口与内置注册表均未报告该模型的窗口；显式值优先生效（4096–10000000）。"}
+                </p>
+              </label>
+            ) : null}
             <label className="provider-field">
               <span className="provider-modal-label">Base URL</span>
               <input

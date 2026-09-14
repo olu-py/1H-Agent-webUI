@@ -1,21 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatActions } from "../hooks";
-import { AGENT_MODES, modeCommand } from "../lib/modes";
+import { modeCommand } from "../lib/modes";
 import { buildCommand, filterCommands, slashCommandToken } from "../lib/commands";
 import type { PaletteCommand } from "../lib/commands";
 import { Icon } from "./icons";
 import { ArgInput, CommandEmpty, CommandList, ConfirmView } from "./CommandList";
+import { ModeSegmented } from "./ModeSegmented";
 import { ProviderSwitcher } from "./ProviderSwitcher";
 
 const MAX_ROWS = 8;
 const ROW_LINE_HEIGHT = 1.55; // px per line height factor (matches CSS line-height)
 
 /**
- * Composer card: auto-growing textarea (1–8 rows), a segmented mode control
- * whose highlight comes straight from the authoritative `state.mode` (no
- * second local copy — clicking runs `executeCommand('/<mode>')`), the
- * provider/model switcher level with the modes on the same row, and a round
- * send/stop button. Keyboard: Enter sends, Shift+Enter newline, Ctrl/Cmd+K
+ * Composer card: auto-growing textarea (1–8 rows), the shared animated mode
+ * segmented control (`ModeSegmented`) whose highlight comes straight from the
+ * authoritative `state.mode` (no second local copy — clicking runs
+ * `executeCommand('/<mode>')` and the gradient thumb slides once the state
+ * lands), the provider/model switcher level with the modes on the same row,
+ * and a rounded send/stop button. Keyboard: Enter sends, Shift+Enter newline,
+ * Ctrl/Cmd+K
  * opens the modal palette (the shortcut hints live in the status bar's
  * bottom-right).
  *
@@ -278,25 +281,13 @@ export function Composer({
           aria-activedescendant={selectedId ? `palette-option-${selectedId}` : undefined}
         />
         <div className="composer-row">
-          <div className="seg composer-modes" role="group" aria-label="Agent 模式">
-            {AGENT_MODES.map((m) => {
-              const active = m.key === mode;
-              return (
-                <button
-                  key={m.key}
-                  type="button"
-                  className={`seg-item ${active ? "active" : ""} mode-${m.tone}`}
-                  title={m.description}
-                  aria-pressed={active}
-                  disabled={busy}
-                  onClick={() => void actions.executeCommand(modeCommand(m.key))}
-                >
-                  <Icon name={m.icon} size={12} />
-                  {m.label}
-                </button>
-              );
-            })}
-          </div>
+          <ModeSegmented
+            className="composer-modes"
+            value={mode}
+            ariaLabel="Agent 模式"
+            disabled={busy}
+            onSelect={(key) => void actions.executeCommand(modeCommand(key))}
+          />
           <ProviderSwitcher provider={provider} model={model} onOpen={onOpenProvider} />
           <button
             type="button"

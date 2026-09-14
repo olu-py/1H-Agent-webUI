@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { Actions } from "./actions";
 import type { Store } from "./state/store";
 import type { UiState } from "./state/reducer";
-import type { ProviderSetOptions } from "./types";
+import type { ProviderModelsDto, ProviderSetOptions } from "./types";
 
 /** React binding for the store via `useSyncExternalStore`. */
 export function useUiState(store: Store): UiState {
@@ -19,6 +19,7 @@ export interface ChatActions {
   deleteSession(sessionId: string): Promise<void>;
   setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void>;
   loadProviderSettings(): Promise<void>;
+  loadProviderModels(refresh?: boolean): Promise<ProviderModelsDto | null>;
   loadOlder(): Promise<void>;
 }
 
@@ -33,6 +34,7 @@ export function useChatActions(actions: Actions): ChatActions {
     deleteSession: actions.deleteSession,
     setProvider: actions.setProvider,
     loadProviderSettings: actions.loadProviderSettings,
+    loadProviderModels: actions.loadProviderModels,
     loadOlder: actions.loadOlder,
   };
 }

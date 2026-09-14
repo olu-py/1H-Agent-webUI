@@ -72,6 +72,10 @@ struct ProviderConfigBody {
     /// `ProviderKind` wire tag ("responses" / "chat_completions").
     #[serde(default)]
     kind: Option<String>,
+    /// Optional explicit context window for models the metadata chain cannot
+    /// resolve; the core clamps it to the same bounds as `Config::load`.
+    #[serde(default)]
+    context_window_tokens: Option<u64>,
     #[serde(default)]
     api_key: Option<String>,
 }
@@ -125,6 +129,7 @@ fn build_router(state: ServerState) -> Router {
             "/api/v2/config/provider",
             get(get_provider_settings).post(post_provider_config),
         )
+        .route("/api/v2/config/provider/models", get(get_provider_models))
         .route("/api/v2/events", get(sse_handler))
         .route("/", get(index_handler))
         .route("/{*path}", get(static_handler))
@@ -307,6 +312,28 @@ async fn get_provider_settings(State(state): State<ServerState>, headers: Header
     }
 }
 
+/// `GET /api/v2/config/provider/models?refresh=` - the provider's model list
+/// from the `model_metadata` cache (ids plus any window/output metadata the
+/// endpoint reports). `refresh=true` refetches the provider's `GET /models`
+/// and models.dev first, bounded by the core's metadata timeout. Metadata
+/// only: the response never includes API keys.
+async fn get_provider_models(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
+    if !authorized(&state, &headers) {
+        return unauthorized();
+    }
+    let refresh = params
+        .get("refresh")
+        .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+    match state.handle.provider_models(refresh).await {
+        Ok(models) => axum::Json(models).into_response(),
+        Err(error) => api_error_response(error),
+    }
+}
+
 /// `POST /api/v2/config/provider` - the settings-screen edit: applies `model`
 /// plus the optional `base_url` and protocol to `preset`'s profile (a fresh
 /// preset template when nothing is saved). An optional `api_key` is stored in
@@ -355,7 +382,13 @@ async fn post_provider_config(
     }
     match state
         .handle
-        .set_provider_profile(preset, &body.0.model, body.0.base_url.as_deref(), kind)
+        .set_provider_profile(
+            preset,
+            &body.0.model,
+            body.0.base_url.as_deref(),
+            kind,
+            body.0.context_window_tokens,
+        )
         .await
     {
         Ok(()) if key_warning.is_none() => StatusCode::ACCEPTED.into_response(),

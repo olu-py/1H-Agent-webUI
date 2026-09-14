@@ -1,5 +1,5 @@
 import { modeCommand } from "./lib/modes";
-import type { Envelope, ProviderSetOptions } from "./types";
+import type { Envelope, ProviderModelsDto, ProviderSetOptions } from "./types";
 import type { Transport, Subscription } from "./transport/transport";
 import type { Store } from "./state/store";
 import { PAGE_SIZE } from "./state/reducer";
@@ -36,6 +36,11 @@ export interface Actions {
   setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void>;
   /** Fetches the provider settings view into the store (settings dialog). */
   loadProviderSettings(): Promise<void>;
+  /** Loads the active provider's model list into the store (settings
+   * dialog). `refresh = true` refetches the provider endpoint and models.dev
+   * first; failures fall back to the previously cached list / static preset
+   * lists without surfacing an error (metadata is best effort). */
+  loadProviderModels(refresh?: boolean): Promise<ProviderModelsDto | null>;
   /** Fetches the next (older) message page and prepends it to the cache. */
   loadOlder(): Promise<void>;
   refreshSnapshot(): Promise<void>;
@@ -279,6 +284,22 @@ export function createActions(transport: Transport, store: Store): Actions {
     }
   };
 
+  const loadProviderModels = async (
+    refresh = false,
+  ): Promise<ProviderModelsDto | null> => {
+    try {
+      const models = await transport.providerModels(refresh);
+      store.dispatch({ type: "providerModels", models });
+      return models;
+    } catch {
+      // Best effort by design: the picker falls back to the previously
+      // cached list and the static preset lists. A failing gateway must not
+      // block the settings dialog. Returns null so focused callers (the
+      // fetch-window button) can surface "not reported" without a store error.
+      return null;
+    }
+  };
+
   const loadOlder = async (): Promise<void> => {
     const { activeSession, nextBefore, hasMore } = store.getState();
     if (!activeSession || !hasMore || nextBefore === null) return;
@@ -309,6 +330,7 @@ export function createActions(transport: Transport, store: Store): Actions {
     deleteSession,
     setProvider,
     loadProviderSettings,
+    loadProviderModels,
     loadOlder,
     refreshSnapshot,
     refreshTranscript,

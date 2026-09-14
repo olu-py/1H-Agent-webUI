@@ -44,18 +44,19 @@ if grep -R -n -F "$legacy_name" \
     fail "legacy singular agent document reference found"
 fi
 
+# design/ 是本地维护中间产物（git 忽略不上传），不参与入库内容校验。
 extracted_core_path='crates/protium''-core'
 legacy_core_test='cargo test -p protium''-core'
 legacy_core_run='cargo run -p protium''-core'
 if grep -R -n -F "$extracted_core_path" \
     "$repo_root/README.md" "$root_doc" "$repo_root/.agents" \
-    "$repo_root/design" "$repo_root/.github"; then
+    "$repo_root/.github"; then
     fail "consumer-local core path reference found"
 fi
 for legacy_command in "$legacy_core_test" "$legacy_core_run"; do
     if grep -R -n -F "$legacy_command" \
         "$repo_root/README.md" "$root_doc" "$repo_root/.agents" \
-        "$repo_root/design" "$repo_root/.github"; then
+        "$repo_root/.github"; then
         fail "consumer workspace core command found"
     fi
 done

@@ -12,6 +12,8 @@ import type { Event as CoreEvent } from "../ts/Event";
 import type { MessageDto as CoreMessageDto } from "../ts/MessageDto";
 import type { MessagePage as CoreMessagePage } from "../ts/MessagePage";
 import type { PartialDto as CorePartialDto } from "../ts/PartialDto";
+import type { ProviderModelDto as CoreProviderModelDto } from "../ts/ProviderModelDto";
+import type { ProviderModelsDto as CoreProviderModelsDto } from "../ts/ProviderModelsDto";
 import type { ProviderProfileDto as CoreProviderProfileDto } from "../ts/ProviderProfileDto";
 import type { ProviderSettingsDto as CoreProviderSettingsDto } from "../ts/ProviderSettingsDto";
 import type { SessionStateDto as CoreSessionStateDto } from "../ts/SessionStateDto";
@@ -46,6 +48,8 @@ export type ApiErrorKind = JsonNumber<CoreApiErrorKind>;
 export type ToolCall = JsonNumber<CoreToolCall>;
 export type ProviderProfileDto = JsonNumber<CoreProviderProfileDto>;
 export type ProviderSettingsDto = JsonNumber<CoreProviderSettingsDto>;
+export type ProviderModelDto = JsonNumber<CoreProviderModelDto>;
+export type ProviderModelsDto = JsonNumber<CoreProviderModelsDto>;
 
 /** Optional fields of the set-provider POST body (the settings-screen edit). */
 export interface ProviderSetOptions {
@@ -53,6 +57,9 @@ export interface ProviderSetOptions {
   baseUrl?: string;
   /** ProviderKind wire tag: "responses" | "chat_completions". */
   kind?: string;
+  /** Optional explicit context window (tokens) for models the metadata chain
+   * cannot resolve; the core clamps it to the configured bounds. */
+  contextWindowTokens?: number;
   /** Write-only: stored in the OS keyring, never echoed back. */
   apiKey?: string;
 }

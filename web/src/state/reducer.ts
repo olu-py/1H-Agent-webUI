@@ -6,6 +6,7 @@ import type {
   MessageDto,
   MessagePage,
   PartialDto,
+  ProviderModelsDto,
   ProviderSettingsDto,
   SessionStateDto,
   TodoDto,
@@ -101,6 +102,11 @@ export interface UiState {
   /** Provider settings view (active + saved profiles, connected presets);
    * fetched when the settings dialog opens and after each apply. */
   providerSettings: ProviderSettingsDto | null;
+  /** The active provider's model list from the core's metadata cache
+   * (`GET /models` + models.dev), for the settings dialog's model picker.
+   * Null until first loaded; a fetch failure keeps the previous value (the
+   * static preset lists remain the fallback). */
+  providerModels: ProviderModelsDto | null;
   messages: ViewMessage[];
   nextBefore: number | null;
   hasMore: boolean;
@@ -121,6 +127,7 @@ export type Action =
   | { type: "connected"; connected: boolean }
   | { type: "clearTranscript" }
   | { type: "providerSettings"; settings: ProviderSettingsDto }
+  | { type: "providerModels"; models: ProviderModelsDto }
   | { type: "error"; message: string }
   | { type: "clearError" };
 
@@ -142,6 +149,7 @@ export const initialState: UiState = {
   activity: { kind: "idle", text: "就绪" },
   backgroundStatus: {},
   providerSettings: null,
+  providerModels: null,
   messages: [],
   nextBefore: null,
   hasMore: false,
@@ -431,6 +439,8 @@ export function reduce(state: UiState, action: Action): UiState {
 
     case "providerSettings":
       return { ...state, providerSettings: action.settings };
+    case "providerModels":
+      return { ...state, providerModels: action.models };
 
     case "error":
       return { ...state, lastError: action.message, busy: false };

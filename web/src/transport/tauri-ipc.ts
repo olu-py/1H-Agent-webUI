@@ -2,6 +2,7 @@ import type {
   AppSnapshotV2,
   Envelope,
   MessagePage,
+  ProviderModelsDto,
   ProviderSetOptions,
   ProviderSettingsDto,
 } from "../types";
@@ -49,6 +50,10 @@ export class TauriIpcTransport implements Transport {
 
   providerSettings(): Promise<ProviderSettingsDto> {
     return this.invoke("providerSettings");
+  }
+
+  providerModels(refresh = false): Promise<ProviderModelsDto> {
+    return this.invoke("providerModels", { refresh });
   }
 
   setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void> {

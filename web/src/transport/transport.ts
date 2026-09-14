@@ -2,6 +2,7 @@ import type {
   AppSnapshotV2,
   Envelope,
   MessagePage,
+  ProviderModelsDto,
   ProviderSetOptions,
   ProviderSettingsDto,
 } from "../types";
@@ -41,6 +42,11 @@ export interface Transport {
   /** `GET /api/v2/config/provider` - active + saved profiles and connected
    * presets; never includes API keys. */
   providerSettings(): Promise<ProviderSettingsDto>;
+  /** `GET /api/v2/config/provider/models?refresh=` - the provider's model
+   * list from the metadata cache; `refresh = true` refetches the provider's
+   * `GET /models` and models.dev first (bounded by the core's metadata
+   * timeout). Metadata only, never API keys. */
+  providerModels(refresh?: boolean): Promise<ProviderModelsDto>;
   /** `POST /api/v2/config/provider` - applies the settings-screen edit.
    * `options.apiKey` (when non-empty) is stored in the OS keyring first and
    * is never echoed back. */
