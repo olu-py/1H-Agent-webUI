@@ -84,6 +84,15 @@ export function HomeScreen({
               <ProviderSwitcher
                 provider={state.provider}
                 model={state.model}
+                providerSettings={state.providerSettings}
+                providerModels={state.providerModels}
+                onExpand={() => {
+                  void actions.loadProviderSettings();
+                  void actions.loadProviderModels();
+                }}
+                onSelectModel={(preset, nextModel) =>
+                  void actions.setProvider(preset, nextModel)
+                }
                 onOpen={onOpenProvider}
               />
               <button

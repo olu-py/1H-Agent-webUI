@@ -1,3 +1,9 @@
+import type {
+  ProviderModelDto,
+  ProviderProfileDto,
+  ProviderSettingsDto,
+} from "../types";
+
 /**
  * Provider presets + their selectable models for the Web UI switcher.
  *
@@ -110,4 +116,83 @@ export function providerKey(value: string): string {
   if (PROVIDERS.some((p) => p.key === trimmed)) return trimmed;
   const lower = trimmed.toLowerCase();
   return PROVIDERS.find((p) => p.label.toLowerCase() === lower)?.key ?? trimmed;
+}
+
+
+/** A selectable model in the grouped provider/model dropdown. */
+export interface ProviderModelOption {
+  id: string;
+  context_window_tokens?: number | null;
+  max_output_tokens?: number | null;
+}
+
+/** One provider heading plus its selectable models. */
+export interface ProviderModelGroup {
+  key: string;
+  label: string;
+  models: ProviderModelOption[];
+}
+
+function providerProfileFor(
+  saved: ProviderProfileDto[] | undefined,
+  key: string,
+): ProviderProfileDto | undefined {
+  return saved?.find((profile) => providerKey(profile.preset) === key);
+}
+
+/**
+ * Builds connected provider groups for the inline switcher.
+ *
+ * `connected` is authoritative. Before settings has loaded, the active
+ * provider is used as a graceful single-group fallback. The active provider's
+ * dynamic model cache is merged only into its own group; other connected
+ * providers use their static registry lists plus their saved model.
+ */
+export function buildProviderModelGroups({
+  settings,
+  provider,
+  model,
+  providerModels,
+}: {
+  settings: ProviderSettingsDto | null;
+  provider: string;
+  model: string;
+  providerModels: ProviderModelDto[] | null;
+}): ProviderModelGroup[] {
+  const activeKey = providerKey(provider);
+  const connected = settings
+    ? [...new Set(settings.connected.map(providerKey).filter(Boolean))]
+    : activeKey
+      ? [activeKey]
+      : [];
+
+  // Preserve core registry order, then append custom/unknown connected keys.
+  const ordered = [
+    ...PROVIDERS.map((p) => p.key),
+    ...connected.filter((key) => !PROVIDERS.some((p) => p.key === key)),
+  ];
+  const keys = ordered.filter((key) => connected.includes(key));
+
+  return keys.map((key) => {
+    const byId = new Map<string, ProviderModelOption>();
+    const add = (id: string) => {
+      if (id && !byId.has(id)) byId.set(id, { id });
+    };
+
+    for (const id of modelsForProvider(key)) add(id);
+    if (key === activeKey) {
+      for (const dto of providerModels ?? []) {
+        byId.set(dto.id, {
+          id: dto.id,
+          context_window_tokens: dto.context_window_tokens,
+          max_output_tokens: dto.max_output_tokens,
+        });
+      }
+      if (model) add(model);
+    }
+    const savedModel = providerProfileFor(settings?.saved, key)?.model;
+    if (savedModel) add(savedModel);
+
+    return { key, label: providerLabel(key), models: [...byId.values()] };
+  });
 }

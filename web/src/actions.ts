@@ -260,6 +260,9 @@ export function createActions(transport: Transport, store: Store): Actions {
   ): Promise<void> => {
     try {
       await transport.setProvider(preset, model, options);
+      // The old provider's model cache must not flash as the new provider's
+      // list while the next switcher open reloads the authoritative cache.
+      store.dispatch({ type: "providerModelsCleared" });
       await refreshSnapshot();
       // Refresh the settings view too: `connected` may have changed (a newly
       // stored key) and the dialog reads from this slice. A failure here must

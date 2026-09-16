@@ -178,6 +178,32 @@ describe("actions.setProvider / loadProviderSettings", () => {
     expect(store.getState().lastError).toBeNull();
   });
 
+  it("applies an inline model selection without options and refreshes state", async () => {
+    const transport = fakeTransport();
+    (transport.snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(snap("build"));
+    (transport.providerSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      active: { preset: "qwen", kind: "responses", model: "qwen-plus", base_url: "https://qwen.example/v1" },
+      saved: [{ preset: "qwen", kind: "responses", model: "qwen-plus", base_url: "https://qwen.example/v1" }],
+      connected: ["qwen"],
+    });
+    const store = createStore();
+    store.dispatch({
+      type: "providerModels",
+      models: { models: [{ id: "old-provider-model", context_window_tokens: null, max_output_tokens: null }], fetched_at: null },
+    });
+    const actions = createActions(transport, store);
+
+    // The grouped switcher sends exactly the two core-owned identifiers.
+    await actions.setProvider("qwen", "qwen-plus");
+
+    expect(transport.setProvider).toHaveBeenCalledWith("qwen", "qwen-plus", undefined);
+    expect(transport.snapshot).toHaveBeenCalledTimes(1);
+    expect(transport.providerSettings).toHaveBeenCalledTimes(1);
+    expect(store.getState().provider).toBe("deepseek");
+    expect(store.getState().providerSettings?.active.model).toBe("qwen-plus");
+    expect(store.getState().providerModels).toBeNull();
+  });
+
   it("keeps the settings view when its refresh fails after a successful apply", async () => {
     const transport = fakeTransport();
     (transport.snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(snap("build"));

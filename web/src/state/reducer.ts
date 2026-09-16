@@ -128,6 +128,7 @@ export type Action =
   | { type: "clearTranscript" }
   | { type: "providerSettings"; settings: ProviderSettingsDto }
   | { type: "providerModels"; models: ProviderModelsDto }
+  | { type: "providerModelsCleared" }
   | { type: "error"; message: string }
   | { type: "clearError" };
 
@@ -441,6 +442,8 @@ export function reduce(state: UiState, action: Action): UiState {
       return { ...state, providerSettings: action.settings };
     case "providerModels":
       return { ...state, providerModels: action.models };
+    case "providerModelsCleared":
+      return { ...state, providerModels: null };
 
     case "error":
       return { ...state, lastError: action.message, busy: false };

@@ -84,6 +84,12 @@
   --z-todo: 40;
   --z-modal: 50;
   --z-palette: 60;
+  /* Scrollbars: global themed presentation; native scrolling behavior stays intact. */
+  --scrollbar-size: 10px;
+  --scrollbar-thumb-inset: 3px;
+  --scrollbar-thumb: color-mix(in srgb, var(--muted) 42%, transparent);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--muted) 62%, transparent);
+  --scrollbar-thumb-active: color-mix(in srgb, var(--accent) 72%, transparent);
   /* Chat header height: icon-btn 2rem + 0.75rem padding x2 + 1px border.
      Floating panels (todo) align their top edge to the header's bottom. */
   --header-h: calc(2rem + 2 * 0.75rem + 1px);
@@ -192,6 +198,51 @@ select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+
+/* ---------- Scrollbars ---------- */
+/* Global system rule: components must not repeat scrollbar overrides. Keep
+   native scroll input/accessibility; these rules only theme presentation. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+}
+
+@supports selector(::-webkit-scrollbar) {
+  *::-webkit-scrollbar {
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border: var(--scrollbar-thumb-inset) solid transparent;
+    background-clip: padding-box;
+    border-radius: var(--radius-full);
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+  }
+
+  *::-webkit-scrollbar-thumb:active {
+    background-color: var(--scrollbar-thumb-active);
+  }
+
+  *::-webkit-scrollbar-button {
+    display: none;
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
 code,
 pre {
   font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
@@ -883,17 +934,26 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 .send-btn.danger:hover:not(:disabled) { filter: brightness(1.08); }
 
 /* ---------- Provider / model switcher (composer row, level with modes) ---------- */
-.provider-switcher { margin-left: auto; flex: none; }
+.provider-switcher {
+  margin-left: auto;
+  flex: none;
+  /* Keep the original pill above the portaled model panel. */
+  position: relative;
+  z-index: calc(var(--z-menu) + 1);
+}
 .provider-btn {
+  position: relative;
+  z-index: 1;
+
   display: inline-flex;
   align-items: center;
   gap: 0.35em;
   border: 1px solid var(--border);
   background: var(--surface-hover);
   color: var(--muted);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-full);
   /* Matches the mode segmented control's height: the `.seg` wraps its items
-     with 2px padding + 1px border, so a standalone control with a 1px border
+     with 2px padding + 1px border, so a standalone pill with a 1px border
      needs ~0.42em vertical padding to line up at the same size. */
   padding: 0.42em 0.7em;
   font-size: var(--text-xs);
@@ -906,6 +966,125 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Floating grouped model picker. The trigger is rendered inside this panel's
+   bottom slot while open, so the list and pill share one bordered surface and
+   the large-radius ladder stays intact. */
+.provider-panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  z-index: var(--z-menu);
+  transform-origin: 50% 100%;
+  animation: provider-panel-up var(--motion-expand) var(--ease-spring) both;
+}
+.provider-panel[data-direction="down"] {
+  flex-direction: column;
+  transform-origin: 50% 0%;
+  animation-name: provider-panel-down;
+}
+/* The trigger-sized slot stays beneath the original pill, so the list grows
+   out from behind it while the pill remains on the upper layer. */
+.provider-panel[data-direction="up"] { padding-bottom: 0; }
+.provider-panel[data-direction="down"] { padding-top: 0; }
+.provider-panel.closing {
+  pointer-events: none;
+  animation-name: provider-panel-up-close;
+  animation-duration: var(--motion-base);
+  animation-timing-function: var(--ease-out);
+  animation-fill-mode: forwards;
+}
+.provider-panel.closing[data-direction="down"] {
+  animation-name: provider-panel-down-close;
+}
+.provider-panel-list {
+  max-height: min(45vh, var(--panel-list-max, 45vh));
+  overflow-y: auto;
+  padding: 0 var(--space-1);
+}
+.provider-panel-empty,
+.provider-model-empty {
+  margin: 0.2rem 0;
+  padding: 0.35em 0.55rem;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.provider-group + .provider-group { margin-top: var(--space-2); }
+.provider-group-label {
+  padding: 0.35em 0.55rem 0.2rem;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.provider-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.provider-model-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  border-radius: calc(var(--radius-lg) - var(--space-1));
+  padding: 0.42em 0.55rem;
+  font-size: var(--text-sm);
+  transition: background var(--transition), color var(--transition);
+}
+.provider-model-option:hover,
+.provider-model-option.selected {
+  background: var(--surface-hover);
+}
+.provider-model-option.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.provider-model-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.provider-model-meta {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.provider-model-option.active .provider-model-meta { color: inherit; }
+.provider-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  justify-content: flex-start;
+  margin-top: var(--space-1);
+  padding: 0.42em 0.55rem;
+  border: none;
+  border-radius: calc(var(--radius-lg) - var(--space-1));
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.provider-settings-row:hover { color: var(--fg); background: var(--surface-hover); }
+.provider-panel-slot {
+  flex: none;
+  height: var(--panel-origin, 32px);
+}
+
 .provider-modal h3 {
   display: flex;
   align-items: center;
@@ -1883,6 +2062,41 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 /* Tail-appended synthetic rows only (see MessageList: the class is added
    pre-paint, once per row key, while the list is bottom-pinned). */
 .message-row.row-enter { animation: rise-in var(--motion-base) var(--ease-out); }
+
+/* The provider picker mounts around its pill, then settles with a slight
+   spring overshoot; direction-dependent origin keeps it expanding from the
+   trigger edge. */
+@keyframes provider-panel-up {
+  from {
+    opacity: 0;
+    transform: scaleY(0.96);
+    /* Start by revealing only the trigger-sized bottom edge; the list then
+       grows upward out of the pill. */
+    clip-path: inset(calc(100% - var(--panel-origin, 32px)) 0 0 0);
+  }
+}
+@keyframes provider-panel-down {
+  from {
+    opacity: 0;
+    transform: scaleY(0.96);
+    clip-path: inset(0 0 calc(100% - var(--panel-origin, 32px)) 0);
+  }
+}
+
+@keyframes provider-panel-up-close {
+  to {
+    opacity: 0;
+    transform: scaleY(0.96);
+    clip-path: inset(calc(100% - var(--panel-origin, 32px)) 0 0 0);
+  }
+}
+@keyframes provider-panel-down-close {
+  to {
+    opacity: 0;
+    transform: scaleY(0.96);
+    clip-path: inset(0 0 calc(100% - var(--panel-origin, 32px)) 0);
+  }
+}
 
 /* Theme cross-fade: applied to <html> only for the duration of a user theme
    switch (see theme.ts) so ordinary streaming renders never pay for it. */

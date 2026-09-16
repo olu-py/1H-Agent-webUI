@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatActions } from "../hooks";
+import type { ProviderModelsDto, ProviderSettingsDto } from "../types";
 import { modeCommand } from "../lib/modes";
 import { buildCommand, filterCommands, slashCommandToken } from "../lib/commands";
 import type { PaletteCommand } from "../lib/commands";
@@ -35,6 +36,8 @@ export function Composer({
   busy,
   provider,
   model,
+  providerSettings,
+  providerModels,
   actions,
   onOpenProvider,
 }: {
@@ -42,6 +45,8 @@ export function Composer({
   busy: boolean;
   provider: string;
   model: string;
+  providerSettings: ProviderSettingsDto | null;
+  providerModels: ProviderModelsDto | null;
   actions: ChatActions;
   onOpenProvider: () => void;
 }) {
@@ -288,7 +293,20 @@ export function Composer({
             disabled={busy}
             onSelect={(key) => void actions.executeCommand(modeCommand(key))}
           />
-          <ProviderSwitcher provider={provider} model={model} onOpen={onOpenProvider} />
+          <ProviderSwitcher
+            provider={provider}
+            model={model}
+            providerSettings={providerSettings}
+            providerModels={providerModels}
+            onExpand={() => {
+              void actions.loadProviderSettings();
+              void actions.loadProviderModels();
+            }}
+            onSelectModel={(preset, nextModel) =>
+              void actions.setProvider(preset, nextModel)
+            }
+            onOpen={onOpenProvider}
+          />
           <button
             type="button"
             className={`send-btn ${busy ? "danger" : "primary"}`}

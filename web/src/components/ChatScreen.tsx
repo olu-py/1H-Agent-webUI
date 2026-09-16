@@ -169,6 +169,8 @@ export function ChatScreen({
               busy={state.busy}
               provider={state.provider}
               model={state.model}
+              providerSettings={state.providerSettings}
+              providerModels={state.providerModels}
               actions={actions}
               onOpenProvider={onOpenProvider}
             />
