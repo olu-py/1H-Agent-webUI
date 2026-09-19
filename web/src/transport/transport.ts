@@ -2,6 +2,7 @@ import type {
   AppSnapshotV2,
   Envelope,
   MessagePage,
+  MemoryDto,
   ProviderModelsDto,
   ProviderSetOptions,
   ProviderSettingsDto,
@@ -28,6 +29,11 @@ export interface Transport {
     sessionId: string,
     opts?: { before?: number | null; limit?: number },
   ): Promise<MessagePage>;
+  memories(query?: string, includeDeleted?: boolean): Promise<MemoryDto[]>;
+  saveMemory(title: string, content: string, candidate?: boolean): Promise<MemoryDto>;
+  confirmMemory(id: number): Promise<MemoryDto>;
+  updateMemory(id: number, title: string, content: string): Promise<MemoryDto>;
+  deleteMemory(id: number): Promise<void>;
   /** `POST /api/v2/sessions/{id}/input` */
   submit(sessionId: string | null, text: string): Promise<void>;
   /** `POST /api/v2/sessions/{id}/commands` */

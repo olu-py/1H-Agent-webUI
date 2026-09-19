@@ -2,6 +2,7 @@ import type {
   AppSnapshotV2,
   Envelope,
   MessagePage,
+  MemoryDto,
   ProviderModelsDto,
   ProviderSetOptions,
   ProviderSettingsDto,
@@ -26,6 +27,26 @@ export class TauriIpcTransport implements Transport {
 
   messages(sessionId: string, opts?: { before?: number | null; limit?: number }): Promise<MessagePage> {
     return this.invoke("messages", { sessionId, before: opts?.before ?? null, limit: opts?.limit });
+  }
+
+  memories(query?: string, includeDeleted = false): Promise<MemoryDto[]> {
+    return this.invoke("memories", { query, includeDeleted });
+  }
+
+  saveMemory(title: string, content: string, candidate = false): Promise<MemoryDto> {
+    return this.invoke("saveMemory", { title, content, candidate });
+  }
+
+  confirmMemory(id: number): Promise<MemoryDto> {
+    return this.invoke("confirmMemory", { id });
+  }
+
+  updateMemory(id: number, title: string, content: string): Promise<MemoryDto> {
+    return this.invoke("updateMemory", { id, title, content });
+  }
+
+  deleteMemory(id: number): Promise<void> {
+    return this.invoke("deleteMemory", { id });
   }
 
   submit(sessionId: string | null, text: string): Promise<void> {

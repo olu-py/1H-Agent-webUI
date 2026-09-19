@@ -1,5 +1,5 @@
 import { modeCommand } from "./lib/modes";
-import type { Envelope, ProviderModelsDto, ProviderSetOptions } from "./types";
+import type { Envelope, MemoryDto, ProviderModelsDto, ProviderSetOptions } from "./types";
 import type { Transport, Subscription } from "./transport/transport";
 import type { Store } from "./state/store";
 import { PAGE_SIZE } from "./state/reducer";
@@ -41,6 +41,11 @@ export interface Actions {
    * first; failures fall back to the previously cached list / static preset
    * lists without surfacing an error (metadata is best effort). */
   loadProviderModels(refresh?: boolean): Promise<ProviderModelsDto | null>;
+  loadMemories(query?: string, includeDeleted?: boolean): Promise<void>;
+  saveMemory(title: string, content: string, candidate?: boolean): Promise<MemoryDto | null>;
+  confirmMemory(id: number): Promise<void>;
+  updateMemory(id: number, title: string, content: string): Promise<void>;
+  deleteMemory(id: number): Promise<void>;
   /** Fetches the next (older) message page and prepends it to the cache. */
   loadOlder(): Promise<void>;
   refreshSnapshot(): Promise<void>;
@@ -303,6 +308,52 @@ export function createActions(transport: Transport, store: Store): Actions {
     }
   };
 
+  const loadMemories = async (query?: string, includeDeleted = false): Promise<void> => {
+    try {
+      store.dispatch({ type: "memories", memories: await transport.memories(query, includeDeleted) });
+    } catch (error) {
+      store.dispatch({ type: "error", message: errorMessage(error) });
+    }
+  };
+
+  const saveMemory = async (title: string, content: string, candidate = false): Promise<MemoryDto | null> => {
+    try {
+      const memory = await transport.saveMemory(title, content, candidate);
+      await loadMemories(undefined, true);
+      return memory;
+    } catch (error) {
+      store.dispatch({ type: "error", message: errorMessage(error) });
+      return null;
+    }
+  };
+
+  const confirmMemory = async (id: number): Promise<void> => {
+    try {
+      await transport.confirmMemory(id);
+      await loadMemories(undefined, true);
+    } catch (error) {
+      store.dispatch({ type: "error", message: errorMessage(error) });
+    }
+  };
+
+  const updateMemory = async (id: number, title: string, content: string): Promise<void> => {
+    try {
+      await transport.updateMemory(id, title, content);
+      await loadMemories(undefined, true);
+    } catch (error) {
+      store.dispatch({ type: "error", message: errorMessage(error) });
+    }
+  };
+
+  const deleteMemory = async (id: number): Promise<void> => {
+    try {
+      await transport.deleteMemory(id);
+      await loadMemories(undefined, true);
+    } catch (error) {
+      store.dispatch({ type: "error", message: errorMessage(error) });
+    }
+  };
+
   const loadOlder = async (): Promise<void> => {
     const { activeSession, nextBefore, hasMore } = store.getState();
     if (!activeSession || !hasMore || nextBefore === null) return;
@@ -334,6 +385,11 @@ export function createActions(transport: Transport, store: Store): Actions {
     setProvider,
     loadProviderSettings,
     loadProviderModels,
+    loadMemories,
+    saveMemory,
+    confirmMemory,
+    updateMemory,
+    deleteMemory,
     loadOlder,
     refreshSnapshot,
     refreshTranscript,

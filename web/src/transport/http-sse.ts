@@ -3,6 +3,7 @@ import type {
   AppSnapshotV2,
   Envelope,
   MessagePage,
+  MemoryDto,
   ProviderModelsDto,
   ProviderSetOptions,
   ProviderSettingsDto,
@@ -80,6 +81,35 @@ export class HttpSseTransport implements Transport {
       limit: opts?.limit,
     });
     return this.json(`/api/v2/sessions/${encodeURIComponent(sessionId)}/messages${query}`);
+  }
+
+  memories(query?: string, includeDeleted = false): Promise<MemoryDto[]> {
+    const params = encodeQuery({ q: query?.trim() || undefined, include_deleted: includeDeleted ? 1 : undefined });
+    return this.json(`/api/v2/memories${params}`);
+  }
+
+  saveMemory(title: string, content: string, candidate = false): Promise<MemoryDto> {
+    return this.json("/api/v2/memories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, content, candidate }),
+    });
+  }
+
+  confirmMemory(id: number): Promise<MemoryDto> {
+    return this.json(`/api/v2/memories/${encodeURIComponent(String(id))}/confirm`, { method: "POST" });
+  }
+
+  updateMemory(id: number, title: string, content: string): Promise<MemoryDto> {
+    return this.json(`/api/v2/memories/${encodeURIComponent(String(id))}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, content }),
+    });
+  }
+
+  deleteMemory(id: number): Promise<void> {
+    return this.request(`/api/v2/memories/${encodeURIComponent(String(id))}`, { method: "DELETE" }).then(() => undefined);
   }
 
   private async post(path: string): Promise<void> {

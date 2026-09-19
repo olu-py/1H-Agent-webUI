@@ -10,6 +10,7 @@ import { TodoPanel } from "./components/TodoPanel";
 import { ApprovalModal } from "./components/ApprovalModal";
 import { CommandPalette } from "./components/CommandPalette";
 import { ProviderSettingsModal } from "./components/ProviderSettingsModal";
+import { MemoryPanel } from "./components/MemoryPanel";
 
 /**
  * Top-level app: home screen until a session is active, then the chat screen.
@@ -27,6 +28,7 @@ export function App({ store, actions }: { store: Store; actions: Actions }) {
   const [showTodo, setShowTodo] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showProvider, setShowProvider] = useState(false);
+  const [showMemory, setShowMemory] = useState(false);
 
   // Apply the theme on mount and whenever it cycles (the effect is the
   // bootstrap safety net; user cycles go through `applyThemeAnimated`, which
@@ -66,12 +68,14 @@ export function App({ store, actions }: { store: Store; actions: Actions }) {
           onToggleTodo={() => setShowTodo((v) => !v)}
           onTogglePalette={() => setShowPalette((v) => !v)}
           onOpenProvider={() => setShowProvider(true)}
+          onOpenMemory={() => setShowMemory(true)}
         />
       ) : (
         <HomeScreen
           state={state}
           actions={chatActions}
           onOpenProvider={() => setShowProvider(true)}
+          onOpenMemory={() => setShowMemory(true)}
         />
       )}
       {showTodo ? <TodoPanel todos={state.todos} actions={chatActions} onClose={() => setShowTodo(false)} /> : null}
@@ -90,6 +94,7 @@ export function App({ store, actions }: { store: Store; actions: Actions }) {
           onClose={() => setShowProvider(false)}
         />
       ) : null}
+      {showMemory ? <MemoryPanel memories={state.memories} actions={chatActions} onClose={() => setShowMemory(false)} /> : null}
       <ApprovalModal approval={state.approval} actions={chatActions} />
     </>
   );

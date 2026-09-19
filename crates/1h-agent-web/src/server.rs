@@ -23,7 +23,7 @@ use axum::{
         Html, IntoResponse, Response,
         sse::{Event as SseEvent, KeepAlive, Sse},
     },
-    routing::{get, post},
+    routing::{get, patch, post},
 };
 use futures_util::StreamExt;
 use protium_core::{
@@ -80,6 +80,20 @@ struct ProviderConfigBody {
     api_key: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct MemoryBody {
+    title: String,
+    content: String,
+    #[serde(default)]
+    candidate: bool,
+}
+
+#[derive(Deserialize)]
+struct MemoryEditBody {
+    title: String,
+    content: String,
+}
+
 /// Starts the WebUI server: builds the core service, binds the listener, and
 /// serves the REST/SSE API plus the embedded static frontend.
 pub async fn run(workspace_path: PathBuf, config: protium_core::config::Config) -> Result<()> {
@@ -130,6 +144,12 @@ fn build_router(state: ServerState) -> Router {
             get(get_provider_settings).post(post_provider_config),
         )
         .route("/api/v2/config/provider/models", get(get_provider_models))
+        .route("/api/v2/memories", get(get_memories).post(post_memory))
+        .route(
+            "/api/v2/memories/{id}",
+            patch(patch_memory).delete(delete_memory),
+        )
+        .route("/api/v2/memories/{id}/confirm", post(confirm_memory))
         .route("/api/v2/events", get(sse_handler))
         .route("/", get(index_handler))
         .route("/{*path}", get(static_handler))
@@ -330,6 +350,89 @@ async fn get_provider_models(
         .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
     match state.handle.provider_models(refresh).await {
         Ok(models) => axum::Json(models).into_response(),
+        Err(error) => api_error_response(error),
+    }
+}
+
+async fn get_memories(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
+    if !authorized(&state, &headers) {
+        return unauthorized();
+    }
+    let query = params.get("q").map(String::as_str);
+    let include_deleted = params
+        .get("include_deleted")
+        .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+    match state.handle.memories(query, include_deleted).await {
+        Ok(memories) => axum::Json(memories).into_response(),
+        Err(error) => api_error_response(error),
+    }
+}
+
+async fn post_memory(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    body: axum::Json<MemoryBody>,
+) -> Response {
+    if !authorized(&state, &headers) {
+        return unauthorized();
+    }
+    match state
+        .handle
+        .save_memory(&body.0.title, &body.0.content, body.0.candidate)
+        .await
+    {
+        Ok(memory) => (StatusCode::CREATED, axum::Json(memory)).into_response(),
+        Err(error) => api_error_response(error),
+    }
+}
+
+async fn confirm_memory(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<i64>,
+) -> Response {
+    if !authorized(&state, &headers) {
+        return unauthorized();
+    }
+    match state.handle.confirm_memory(id).await {
+        Ok(memory) => axum::Json(memory).into_response(),
+        Err(error) => api_error_response(error),
+    }
+}
+
+async fn patch_memory(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<i64>,
+    body: axum::Json<MemoryEditBody>,
+) -> Response {
+    if !authorized(&state, &headers) {
+        return unauthorized();
+    }
+    match state
+        .handle
+        .update_memory(id, &body.0.title, &body.0.content)
+        .await
+    {
+        Ok(memory) => axum::Json(memory).into_response(),
+        Err(error) => api_error_response(error),
+    }
+}
+
+async fn delete_memory(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<i64>,
+) -> Response {
+    if !authorized(&state, &headers) {
+        return unauthorized();
+    }
+    match state.handle.delete_memory(id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => api_error_response(error),
     }
 }

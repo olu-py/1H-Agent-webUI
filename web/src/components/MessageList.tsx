@@ -166,6 +166,26 @@ export function MessageList({
     },
     [setRowHeight],
   );
+  // The reducer may evict either end of the bounded transcript window. Drop
+  // all DOM/layout/animation bookkeeping for rows that left the window; a
+  // long stream or repeated history paging must not retain every old key.
+  useLayoutEffect(() => {
+    const liveKeys = new Set(messages.map((message) => message.key));
+    for (const key of heights.current.keys()) {
+      if (!liveKeys.has(key)) heights.current.delete(key);
+    }
+    for (const [key, element] of rowEls.current) {
+      if (liveKeys.has(key)) continue;
+      observerRef.current?.unobserve(element);
+      rowEls.current.delete(key);
+    }
+    for (const key of rowRefs.current.keys()) {
+      if (!liveKeys.has(key)) rowRefs.current.delete(key);
+    }
+    for (const key of animatedKeysRef.current) {
+      if (!liveKeys.has(key)) animatedKeysRef.current.delete(key);
+    }
+  }, [messages]);
   useEffect(() => () => observerRef.current?.disconnect(), []);
 
   // Compute cumulative offsets from measured heights. Unseen rows fall back

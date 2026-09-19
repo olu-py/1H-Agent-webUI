@@ -5,6 +5,7 @@ import type {
   Envelope,
   MessageDto,
   MessagePage,
+  MemoryDto,
   PartialDto,
   ProviderModelsDto,
   ProviderSettingsDto,
@@ -107,6 +108,7 @@ export interface UiState {
    * Null until first loaded; a fetch failure keeps the previous value (the
    * static preset lists remain the fallback). */
   providerModels: ProviderModelsDto | null;
+  memories: MemoryDto[];
   messages: ViewMessage[];
   nextBefore: number | null;
   hasMore: boolean;
@@ -129,6 +131,7 @@ export type Action =
   | { type: "providerSettings"; settings: ProviderSettingsDto }
   | { type: "providerModels"; models: ProviderModelsDto }
   | { type: "providerModelsCleared" }
+  | { type: "memories"; memories: MemoryDto[] }
   | { type: "error"; message: string }
   | { type: "clearError" };
 
@@ -151,6 +154,7 @@ export const initialState: UiState = {
   backgroundStatus: {},
   providerSettings: null,
   providerModels: null,
+  memories: [],
   messages: [],
   nextBefore: null,
   hasMore: false,
@@ -199,10 +203,15 @@ export function toViewMessage(dto: MessageDto): ViewMessage {
   }
 }
 
-function evict(messages: ViewMessage[]): ViewMessage[] {
+function evict(messages: ViewMessage[], direction: "oldest" | "newest" = "oldest"): ViewMessage[] {
   if (messages.length <= MAX_CACHE_MESSAGES) return messages;
-  // Trim oldest (the tail, since display order is oldest→newest).
-  return messages.slice(messages.length - MAX_CACHE_MESSAGES);
+  // Display order is oldest→newest. Live/newer appends evict the oldest end;
+  // prepending an older page evicts the newer end so the window follows the
+  // direction the user is browsing. A later refresh can always re-anchor at
+  // the newest page.
+  return direction === "oldest"
+    ? messages.slice(messages.length - MAX_CACHE_MESSAGES)
+    : messages.slice(0, MAX_CACHE_MESSAGES);
 }
 
 function replaceAt(state: UiState, index: number, message: ViewMessage): UiState {
@@ -259,7 +268,7 @@ function appendStream(state: UiState, which: "text" | "thinking", delta: string)
     streamingText: which === "text" ? delta : undefined,
     streamingThinking: which === "thinking" ? delta : undefined,
   };
-  return { ...state, synthSeq, messages: [...state.messages, created], busy: true };
+  return { ...state, synthSeq, messages: evict([...state.messages, created]), busy: true };
 }
 
 /** Merges in-flight streaming into `content`/`thinking` (used when a round
@@ -333,7 +342,7 @@ function upsertGeneratingRow(state: UiState, name: string): UiState {
     content: "",
     createdAt: new Date(0).toISOString(),
   };
-  return { ...state, synthSeq, messages: [...messages, toolMsg] };
+  return { ...state, synthSeq, messages: evict([...messages, toolMsg]) };
 }
 
 /** Finds a synthetic or persisted tool message by call id. */
@@ -394,7 +403,7 @@ export function reduce(state: UiState, action: Action): UiState {
       const fresh = action.page.messages.map(toViewMessage);
       const messages = action.replace
         ? evict(fresh)
-        : evict([...fresh, ...state.messages]);
+        : evict([...fresh, ...state.messages], "newest");
       return {
         ...state,
         messages,
@@ -429,7 +438,7 @@ export function reduce(state: UiState, action: Action): UiState {
         content: action.text,
         createdAt: new Date(0).toISOString(),
       };
-      return { ...state, synthSeq, messages: [...state.messages, echo] };
+      return { ...state, synthSeq, messages: evict([...state.messages, echo]) };
     }
 
     case "dropUserEcho":
@@ -444,6 +453,8 @@ export function reduce(state: UiState, action: Action): UiState {
       return { ...state, providerModels: action.models };
     case "providerModelsCleared":
       return { ...state, providerModels: null };
+    case "memories":
+      return { ...state, memories: action.memories };
 
     case "error":
       return { ...state, lastError: action.message, busy: false };
@@ -572,7 +583,7 @@ export function reduce(state: UiState, action: Action): UiState {
               status: `正在执行工具：${c.name}`,
               activity: { kind: "tool_run", text: "正在执行工具" },
               contextOverlayTokens: s.contextOverlayTokens + toolArgsTokens,
-              messages: [...dropGeneratingRows(s).messages, toolMsg],
+              messages: evict([...dropGeneratingRows(s).messages, toolMsg]),
             }),
             `正在执行工具：${c.name}`,
           );
@@ -622,7 +633,7 @@ export function reduce(state: UiState, action: Action): UiState {
               status: `工具完成：${c.name}`,
               activity: { kind: "tool_run", text: "工具执行完成" },
               contextOverlayTokens: s.contextOverlayTokens + resultTokens,
-              messages: [...dropGeneratingRows(s).messages, toolMsg],
+              messages: evict([...dropGeneratingRows(s).messages, toolMsg]),
             }),
             `工具完成：${c.name}`,
           );

@@ -30,11 +30,13 @@ export function HomeScreen({
   state,
   actions,
   onOpenProvider,
+  onOpenMemory,
 }: {
   state: UiState;
   actions: ChatActions;
   /** Opens the app-owned provider settings modal (same one as the composer). */
   onOpenProvider: () => void;
+  onOpenMemory: () => void;
 }) {
   const [text, setText] = useState("");
   const [pendingMode, setPendingMode] = useState<string>(state.mode || "build");
@@ -57,6 +59,7 @@ export function HomeScreen({
             <div className="home-logo" aria-hidden="true">
               <Icon name="sparkles" size={22} />
             </div>
+            <button type="button" className="icon-btn" onClick={onOpenMemory} title="工作区记忆" aria-label="工作区记忆"><Icon name="search" size={16} /></button>
             <h1 className="home-title">1H-Agent</h1>
           </div>
           <p className="home-subtitle">极致轻量、权限感知的 Agent</p>

@@ -1757,6 +1757,22 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   overflow: auto;
 }
 .modal-card h3 { margin: 0 0 var(--space-3); font-size: var(--text-lg); }
+.memory-modal { max-width: 46rem; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.modal-head h3 { margin-bottom: 0; }
+.memory-search { display: flex; gap: var(--space-2); margin: var(--space-3) 0; }
+.memory-search input { flex: 1; }
+.memory-list { max-height: 42vh; overflow: auto; display: grid; gap: var(--space-2); }
+.memory-row { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3); background: var(--surface); }
+.memory-row.candidate { border-color: var(--accent); }
+.memory-row-head { display: flex; justify-content: space-between; gap: var(--space-2); }
+.memory-row p { margin: var(--space-2) 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.memory-source { overflow-wrap: anywhere; }
+.memory-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+.memory-editor { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.memory-editor textarea { resize: vertical; }
+.memory-candidate { color: var(--muted); font-size: var(--text-sm); }
+.danger-text { color: var(--danger); }
 /* The provider picker needs a wider two-column form than the standard
    dialog. Declared after `.modal-card` (and with higher specificity) so the
    34rem default does not silently override it. */

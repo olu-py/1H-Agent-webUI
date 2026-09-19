@@ -20,6 +20,11 @@ export interface ChatActions {
   setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void>;
   loadProviderSettings(): Promise<void>;
   loadProviderModels(refresh?: boolean): Promise<ProviderModelsDto | null>;
+  loadMemories(query?: string, includeDeleted?: boolean): Promise<void>;
+  saveMemory(title: string, content: string, candidate?: boolean): Promise<import("./types").MemoryDto | null>;
+  confirmMemory(id: number): Promise<void>;
+  updateMemory(id: number, title: string, content: string): Promise<void>;
+  deleteMemory(id: number): Promise<void>;
   loadOlder(): Promise<void>;
 }
 
@@ -35,6 +40,11 @@ export function useChatActions(actions: Actions): ChatActions {
     setProvider: actions.setProvider,
     loadProviderSettings: actions.loadProviderSettings,
     loadProviderModels: actions.loadProviderModels,
+    loadMemories: actions.loadMemories,
+    saveMemory: actions.saveMemory,
+    confirmMemory: actions.confirmMemory,
+    updateMemory: actions.updateMemory,
+    deleteMemory: actions.deleteMemory,
     loadOlder: actions.loadOlder,
   };
 }

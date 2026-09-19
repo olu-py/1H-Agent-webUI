@@ -26,6 +26,7 @@ export function ChatScreen({
   onToggleTodo,
   onTogglePalette,
   onOpenProvider,
+  onOpenMemory,
 }: {
   state: UiState;
   actions: ChatActions;
@@ -36,6 +37,7 @@ export function ChatScreen({
   onToggleTodo: () => void;
   onTogglePalette: () => void;
   onOpenProvider: () => void;
+  onOpenMemory: () => void;
 }) {
   const active = state.sessions.find((s) => s.id === state.activeSession);
   // Fold tool outputs into their call rows before rendering; memoized so
@@ -124,6 +126,9 @@ export function ChatScreen({
                 aria-label="命令面板"
               >
                 <Icon name="palette" size={16} />
+              </button>
+              <button type="button" className="icon-btn" onClick={onOpenMemory} title="工作区记忆" aria-label="工作区记忆">
+                <Icon name="search" size={16} />
               </button>
               <button
                 type="button"
