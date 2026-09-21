@@ -88,10 +88,10 @@ PROTIUM_CORE_PATH=../protium-core bash scripts/core-bindings.sh sync
 
 ### 正式更新与交付
 
-先在独立的 [core 仓库](https://github.com/olu-py/1H-Agent-core) 完成测试、bindings、提交并 push `main`，再在本仓库运行：
+先在独立的 [core 仓库](https://github.com/olu-py/1H-Agent-core) 完成测试、bindings、提交并 push，再在本仓库使用固定的 40 位 core SHA 更新：
 
 ```bash
-cargo update -p protium-core
+./scripts/update-core.sh 06f760ddc7d2a94a06d63898ec3463eb3a85b3be
 bash scripts/core-bindings.sh sync
 bash scripts/core-bindings.sh check
 cargo test --all-features --locked
@@ -102,7 +102,7 @@ pnpm test
 pnpm build
 ```
 
-正式同步不得设置 `PROTIUM_CORE_PATH`：脚本必须从 `Cargo.lock` 对应的 Git checkout 复制 `bindings/*.ts` 到 `web/ts/`。完成 Rust/TypeScript 适配后，在本仓库单独提交 `Cargo.lock`、`web/ts/` 和前端变化产生的 `web/dist/`。普通 `cargo update` 会更新其他依赖，不适合仅升级 core。
+Windows 使用 `.\scripts\update-core.ps1 -Rev <40-char-sha>`，然后在 Git Bash 中运行 `bash scripts/core-bindings.sh sync` 与 `check`。升级脚本会拒绝 dirty 的清单/锁文件，定向更新 `protium-core`，验证 metadata 来源为 Git SHA，且不会自动提交或 push。正式同步不得设置 `PROTIUM_CORE_PATH`：bindings 脚本必须从 `Cargo.lock` 对应的 Git checkout 复制 `bindings/*.ts` 到 `web/ts/`。完成 Rust/TypeScript 适配后，在本仓库单独提交预期的清单、锁文件、`web/ts/` 和前端变化产生的 `web/dist/`。普通 `cargo update` 会更新其他依赖，不适合仅升级 core。
 
 不要修改 Cargo 缓存中的 checkout，也不要把 core 源码复制回本仓库。core、TUI、WebUI 的版本号、tag、commit 和 push 互相独立。
 
