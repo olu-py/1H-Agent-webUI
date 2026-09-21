@@ -480,7 +480,9 @@ async fn post_provider_config(
                 "keyring write failed for {}; the key applies to this run only",
                 preset.key_id()
             );
-            key_warning = Some(format!("密钥已生效（本次运行），但写入系统钥匙串失败：{error}"));
+            key_warning = Some(format!(
+                "密钥已生效（本次运行），但写入系统钥匙串失败：{error}"
+            ));
         }
     }
     match state
