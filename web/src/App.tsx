@@ -11,6 +11,7 @@ import { ApprovalModal } from "./components/ApprovalModal";
 import { CommandPalette } from "./components/CommandPalette";
 import { ProviderSettingsModal } from "./components/ProviderSettingsModal";
 import { MemoryPanel } from "./components/MemoryPanel";
+import { Presence } from "./components/Presence";
 
 /**
  * Top-level app: home screen until a session is active, then the chat screen.
@@ -78,24 +79,30 @@ export function App({ store, actions }: { store: Store; actions: Actions }) {
           onOpenMemory={() => setShowMemory(true)}
         />
       )}
-      {showTodo ? <TodoPanel todos={state.todos} actions={chatActions} onClose={() => setShowTodo(false)} /> : null}
-      {showPalette ? (
+      <Presence open={showTodo}>
+        <TodoPanel todos={state.todos} actions={chatActions} onClose={() => setShowTodo(false)} />
+      </Presence>
+      <Presence open={showPalette}>
         <CommandPalette
           actions={chatActions}
           mode={state.mode}
           onClose={() => setShowPalette(false)}
           onOpenProviderSettings={() => setShowProvider(true)}
         />
-      ) : null}
-      {showProvider ? (
+      </Presence>
+      <Presence open={showProvider}>
         <ProviderSettingsModal
           state={state}
           actions={chatActions}
           onClose={() => setShowProvider(false)}
         />
-      ) : null}
-      {showMemory ? <MemoryPanel memories={state.memories} actions={chatActions} onClose={() => setShowMemory(false)} /> : null}
-      <ApprovalModal approval={state.approval} actions={chatActions} />
+      </Presence>
+      <Presence open={showMemory}>
+        <MemoryPanel memories={state.memories} actions={chatActions} onClose={() => setShowMemory(false)} />
+      </Presence>
+      <Presence open={state.approval !== null}>
+        <ApprovalModal key={state.approval?.approval_id} approval={state.approval} actions={chatActions} />
+      </Presence>
     </>
   );
 }

@@ -195,13 +195,14 @@ export function ProviderSwitcher({
     focusTriggerRef.current = focusTrigger;
     closingRef.current = true;
     setClosing(true);
-    // Keep the panel mounted long enough for the reverse animation. This
-    // matches --motion-base and is simpler than wiring animationend fallbacks.
+    // Use the same exit duration as other floating surfaces.
+    const duration = getComputedStyle(document.documentElement).getPropertyValue("--motion-base").trim();
+    const milliseconds = parseFloat(duration) * (duration.endsWith("ms") ? 1 : 1000);
     closeTimerRef.current = window.setTimeout(() => {
       closingRef.current = false;
       setClosing(false);
       setOpen(false);
-    }, 180);
+    }, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : (Number.isFinite(milliseconds) ? milliseconds : 180));
   };
 
   const togglePanel = () => {

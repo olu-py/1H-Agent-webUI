@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Presence } from "./Presence";
 import type { ChatActions } from "../hooks";
 import type { ProviderModelsDto, ProviderSettingsDto } from "../types";
 import { modeCommand } from "../lib/modes";
@@ -217,7 +218,7 @@ export function Composer({
 
   return (
     <footer className="composer">
-      {popupActive ? (
+      <Presence open={popupActive}>
         <div className="slash-popup" id="composer-slash-popup" ref={popupRef} aria-label="命令补全">
           {confirm ? (
             <ConfirmView command={confirm} onCancel={() => setConfirm(null)} onConfirm={() => executeCommand(confirm)} />
@@ -265,7 +266,7 @@ export function Composer({
             </>
           )}
         </div>
-      ) : null}
+      </Presence>
       <div className="composer-card">
         <textarea
           ref={inputRef}

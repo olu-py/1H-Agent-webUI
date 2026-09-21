@@ -56,7 +56,7 @@ export function MemoryPanel({
         </div>
         <div className="memory-search">
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索记忆…" onKeyDown={(event) => event.key === "Enter" && search()} />
-          <button type="button" className="secondary" onClick={search}><Icon name="search" size={14} />搜索</button>
+          <button type="button" className="ghost" onClick={search}><Icon name="search" size={14} />搜索</button>
         </div>
         <div className="memory-list">
           {memories.length === 0 ? <p className="dim">暂无记忆或候选。</p> : memories.map((memory) => (
@@ -67,9 +67,9 @@ export function MemoryPanel({
                 来源：{memory.source_session_id ? memory.source_session_id.slice(0, 8) : "手动"}{memory.evidence ? ` · ${memory.evidence}` : ""}
               </div> : null}
               {memory.status !== "deleted" ? <div className="memory-actions">
-                {memory.status === "candidate" ? <button type="button" className="secondary" onClick={() => void actions.confirmMemory(memory.id)}>确认</button> : null}
-                <button type="button" className="secondary" onClick={() => edit(memory)}>编辑</button>
-                <button type="button" className="secondary danger-text" onClick={() => void actions.deleteMemory(memory.id)}>删除</button>
+                {memory.status === "candidate" ? <button type="button" className="primary" onClick={() => void actions.confirmMemory(memory.id)}>确认</button> : null}
+                <button type="button" className="ghost" onClick={() => edit(memory)}>编辑</button>
+                <button type="button" className="danger" onClick={() => void actions.deleteMemory(memory.id)}>删除</button>
               </div> : null}
             </article>
           ))}
@@ -79,7 +79,7 @@ export function MemoryPanel({
           <textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="稳定事实、约定或决策" rows={3} />
           {editing === null ? <label className="memory-candidate"><input type="checkbox" checked={candidate} onChange={(event) => setCandidate(event.target.checked)} /> 保存为候选，稍后确认</label> : null}
           <div className="provider-modal-actions">
-            <button type="button" className="secondary" onClick={() => { setEditing(null); setTitle(""); setContent(""); }}>清空</button>
+            <button type="button" className="ghost" onClick={() => { setEditing(null); setTitle(""); setContent(""); }}>清空</button>
             <button type="button" className="primary" disabled={!title.trim() || !content.trim()} onClick={() => void save()}>{editing === null ? "保存" : "更新"}</button>
           </div>
         </div>

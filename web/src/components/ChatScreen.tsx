@@ -8,6 +8,7 @@ import { MessageList } from "./MessageList";
 import { SessionTree } from "./SessionTree";
 import { StatusBar } from "./StatusBar";
 import { Icon } from "./icons";
+import { Presence } from "./Presence";
 
 /**
  * Main chat screen: CSS-grid shell with a full-height session-tree sidebar
@@ -64,7 +65,12 @@ export function ChatScreen({
   return (
     <section className="chat">
       <div className="chat-layout">
-        <aside className={`chat-sidebar ${showSessions ? "open" : ""}`}>
+        <Presence open={showSessions}>
+          <div className="sidebar-backdrop" onClick={onToggleSessions} aria-hidden="true" />
+        </Presence>
+        <aside className={`chat-sidebar ${showSessions ? "open" : ""}`} onKeyDown={(event) => {
+          if (event.key === "Escape" && showSessions) onToggleSessions();
+        }}>
           <div className="sidebar-brand">
             <span className="brand-logo" aria-hidden="true">
               <Icon name="sparkles" size={16} />

@@ -69,8 +69,8 @@
   --shadow-md: 0 4px 14px var(--shadow-color);
   --shadow-lg: 0 10px 34px var(--shadow-color);
   /* motion */
-  --transition: 150ms ease;
-  --transition-fast: 100ms ease;
+  --transition: var(--motion-base) var(--ease-out);
+  --transition-fast: var(--motion-fast) var(--ease-out);
   --motion-fast: 120ms;
   --motion-base: 180ms;
   --motion-expand: 220ms;
@@ -293,32 +293,35 @@ pre {
    so every primary interactive control in the app (header icons, session
    rows, action buttons) shares one height band. The composer row keeps its
    own denser control band (see `.seg`). */
+button.primary,
+button.danger,
+button.ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.32em 0.9em;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.5;
+}
 button.primary {
   background: var(--accent);
-  border: 1px solid var(--accent);
+  border-color: var(--accent);
   color: var(--on-accent);
-  border-radius: var(--radius-md);
-  padding: 0.32em 0.9em;
-  font-size: var(--text-sm);
-  transition: filter var(--transition);
 }
-button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--fg)); }
 button.danger {
   background: var(--danger);
-  border: 1px solid var(--danger);
+  border-color: var(--danger);
   color: #fff;
-  border-radius: var(--radius-md);
-  padding: 0.32em 0.9em;
-  font-size: var(--text-sm);
 }
 button.ghost {
   background: transparent;
-  border: 1px solid var(--border);
   color: var(--fg);
-  border-radius: var(--radius-md);
-  padding: 0.32em 0.9em;
-  font-size: var(--text-sm);
-  transition: background var(--transition);
 }
 button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 
@@ -918,6 +921,7 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
    variants (0,2,0). */
 .send-btn.primary,
 .send-btn.danger {
+  min-height: 0;
   border-radius: var(--radius-md);
   border: none;
   padding: 0;
@@ -926,12 +930,12 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   background: var(--accent);
   color: var(--on-accent);
 }
-.send-btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+.send-btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--fg)); }
 .send-btn.danger {
   background: var(--danger);
   color: #fff;
 }
-.send-btn.danger:hover:not(:disabled) { filter: brightness(1.08); }
+.send-btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 88%, var(--fg)); }
 
 /* ---------- Provider / model switcher (composer row, level with modes) ---------- */
 .provider-switcher {
@@ -959,7 +963,7 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   font-size: var(--text-xs);
   transition: color var(--transition), border-color var(--transition);
 }
-.provider-btn:hover { color: var(--fg); border-color: var(--accent); }
+.provider-btn:hover:enabled { color: var(--fg); border-color: var(--accent); }
 .provider-btn-text {
   max-width: 13rem;
   overflow: hidden;
@@ -1873,7 +1877,8 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 .todo-status.done { color: var(--success); background: var(--success-soft); }
 .todo-status.in_progress { color: var(--accent); background: var(--accent-soft); }
 .todo-actions { display: inline-flex; gap: 0.1rem; flex: none; opacity: 0; transition: opacity var(--transition); }
-.todo-item:hover .todo-actions { opacity: 1; }
+.todo-item:hover .todo-actions,
+.todo-item:focus-within .todo-actions { opacity: 1; }
 .todo-mini {
   border: none;
   background: none;
@@ -2048,33 +2053,81 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
     background: var(--bg);
     z-index: var(--z-drawer);
     transform: translateX(-100%);
-    transition: transform 0.22s ease;
+    visibility: hidden;
+    transition: transform var(--motion-expand) var(--ease-out), visibility 0s linear var(--motion-expand);
     box-shadow: var(--shadow-lg);
     border-right: 1px solid var(--border);
   }
-  .chat-sidebar.open { transform: translateX(0); }
+  .chat-sidebar.open { transform: translateX(0); visibility: visible; transition-delay: 0s; }
   .sidebar-close { display: inline-flex; }
   .status-hint { display: none; }
   .activity-text { max-width: 8rem; }
 }
 
-/* ---------- Motion ----------
-   Entrance-only animations (no exit machinery): overlays and tail-appended
-   transcript rows fade/rise in once. All of it is disabled under
-   `prefers-reduced-motion` below. */
+/* ---------- Shared interaction and motion ---------- */
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+/* One feedback contract for text, icon, segmented and list controls. Scale
+   is independent of transform, preserving positioned menu/segment geometry. */
+button[class] {
+  transition: background-color var(--transition), border-color var(--transition),
+    color var(--transition), box-shadow var(--transition), opacity var(--transition),
+    scale var(--transition-fast), visibility var(--transition);
+}
+button:enabled:active { scale: 0.97; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+button.danger:hover:enabled { background: color-mix(in srgb, var(--danger) 88%, var(--fg)); }
+button:disabled { box-shadow: none; scale: 1; }
+.todo-mini, .todo-toggle { min-width: 1.75rem; min-height: 1.75rem; justify-content: center; align-items: center; border-radius: var(--radius-sm); }
+.todo-toggle:hover:enabled { background: var(--accent-soft); }
+.palette-item:hover:enabled { background: var(--surface-hover); }
+@media (hover: none) {
+  .todo-actions, .session-menu-btn { opacity: 1; visibility: visible; }
+}
+.presence { display: contents; }
+.presence[data-state="closing"] > * { pointer-events: none; }
+.sidebar-backdrop { display: none; }
+@media (max-width: 860px) {
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--z-drawer) - 1);
+    background: rgba(0, 0, 0, 0.4);
+  }
+}
 @keyframes fade-in {
   from { opacity: 0; }
 }
 @keyframes rise-in {
   from { opacity: 0; transform: translateY(6px); }
 }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes surface-in {
+  from { opacity: 0; translate: 0 8px; scale: 0.98; }
+}
+@keyframes surface-out {
+  to { opacity: 0; translate: 0 4px; scale: 0.98; }
+}
 .modal-backdrop,
-.palette-backdrop { animation: fade-in var(--motion-fast) ease; }
+.palette-backdrop,
+.sidebar-backdrop { animation: fade-in var(--motion-base) var(--ease-out); }
 .modal-card,
 .palette-card,
 .slash-popup,
 .todo-panel,
-.error-banner { animation: rise-in var(--motion-base) var(--ease-out); }
+.session-menu { animation: surface-in var(--motion-base) var(--ease-out) both; }
+.slash-popup { transform-origin: bottom center; }
+.todo-panel { transform-origin: top right; }
+.presence[data-state="closing"] > :is(.modal-backdrop, .palette-backdrop, .sidebar-backdrop) {
+  animation: fade-out var(--motion-base) var(--ease-out) both;
+}
+.presence[data-state="closing"] > :is(.slash-popup, .todo-panel, .session-menu),
+.presence[data-state="closing"] > :is(.modal-backdrop, .palette-backdrop) > :is(.modal-card, .palette-card) {
+  animation: surface-out var(--motion-base) var(--ease-out) both;
+}
+.home, .chat, .error-banner { animation: fade-in var(--motion-base) var(--ease-out); }
 /* Tail-appended synthetic rows only (see MessageList: the class is added
    pre-paint, once per row key, while the list is bottom-pinned). */
 .message-row.row-enter { animation: rise-in var(--motion-base) var(--ease-out); }

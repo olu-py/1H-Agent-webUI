@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Presence } from "./Presence";
 import type { ChatActions } from "../hooks";
 import { Icon } from "./icons";
 
@@ -88,8 +89,8 @@ export function SessionMenu({
       >
         <Icon name="dots" size={16} />
       </button>
-      {open
-        ? createPortal(
+      {createPortal(
+          <Presence open={open}>
             <div ref={menuRef} className="session-menu" role="menu" style={style}>
               {confirming ? (
                 <>
@@ -137,10 +138,10 @@ export function SessionMenu({
                   </button>
                 </>
               )}
-            </div>,
+            </div>
+          </Presence>,
             document.body,
-          )
-        : null}
+          )}
     </div>
   );
 }

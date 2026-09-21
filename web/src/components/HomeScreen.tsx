@@ -100,7 +100,7 @@ export function HomeScreen({
               />
               <button
                 type="button"
-                className="send-btn"
+                className="send-btn primary"
                 onClick={send}
                 disabled={!text.trim()}
                 title={text.trim() ? "发送（Enter）" : "输入内容后发送"}
