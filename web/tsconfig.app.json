@@ -18,5 +18,5 @@
     "noUncheckedSideEffectImports": true,
     "tsBuildInfoFile": "node_modules/.cache/tsconfig.app.tsbuildinfo"
   },
-  "include": ["src", "ts"]
+  "include": ["src", "ts", "benchmarks"]
 }

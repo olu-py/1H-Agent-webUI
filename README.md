@@ -69,6 +69,13 @@ cargo build --release --locked --package protium-web --bin 1h-agent-web
 ./target/release/1h-agent-web --workspace /path/to/project
 ```
 
+前端 10k SSE 事件 reducer 回放基线与单元测试分开运行：
+
+```bash
+cd web
+pnpm bench
+```
+
 ## 更新 protium-core
 
 这一节只面向维护者。普通构建不会自动追踪 core 的 `main`：`Cargo.lock` 锁定具体 commit，只有提交新的锁文件后，其他用户才会获得新版 core。
