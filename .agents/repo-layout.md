@@ -6,8 +6,8 @@
 
 | 路径 | 职责 | 约束 |
 | --- | --- | --- |
-| `/` 根 | 仅标准文件：`README.md`、`AGENTS.md`、`LICENSE`、`THIRD_PARTY_NOTICES.md`、`Cargo.toml`、`Cargo.lock`、`.gitignore` | 根目录**不新增**其他文件；计划/设计文档一律进 `design/` |
-| `.agents/` | AI 维护协议入口 `AGENTS.md` 的配套：8 个专题指南（`guides/`）、Windows 沙箱边界（`maintenance-env.md`）、本文 | 新专题指南须同时满足 `scripts/check-agent-docs.sh` 的结构约束并在根协议路由表登记 |
+| `/` 根 | 仅标准文件：`README.md`、`AGENTS.md`、`LICENSE`、`THIRD_PARTY_NOTICES.md`、`Cargo.toml`、`Cargo.lock`、`.gitignore` | 根目录**不新增**其他文件；临时维护计划进 `design/`，长期维护指南进 `.agents/guides/` |
+| `.agents/` | AI 维护协议入口 `AGENTS.md` 的配套专题指南（`guides/`）、Windows 沙箱边界（`maintenance-env.md`）、本文 | 新专题指南须同时满足 `scripts/check-agent-docs.sh` 的结构约束并在根协议路由表登记 |
 | `.github/workflows/` | CI（frontend / quality / platform-tests）与 Release 流水线 | 引用脚本路径时与 `scripts/` 平铺布局保持一致 |
 | `.github/release-notes/` | 每个 tag 一份 `vX.Y.Z.md`，Release 流水线按名取用 | 新版本发布前必须补齐 |
 | `config/` | 仅 `config.example.toml`（配置样例与默认值快照） | 真实 `config.toml` 落在数据目录或系统配置目录，绝不入库 |
@@ -39,7 +39,7 @@
 | `dist/`、`*.deb`、`*.msi`、`*.zip`、`*.tar.gz` | 本地打包（package 脚本输出在仓库外，此项防手滑） | 可删 |
 | `gui-test-screenshots/` | 人工 GUI 验证截图 | 可删 |
 | `.smoke-test-*/` | `smoke-web.sh` 被强杀时的残留 | 可删 |
-| `design/` | 项目维护中间产物：设计/计划文档与实施记录（文件头带「来源日期 + 状态」，完成即改「已归档」），git 忽略不上传，仅本地留存 | 可整目录删除；删除后历史结论以 `.agents` 指南与已发布代码为准，重新引用时依据本地副本 |
+| `design/` | 仅存放任务期间产生、完成后归档或删除的临时维护计划与实施记录；git 忽略不上传，仅本地留存 | 不得存放长期有效的维护指南或 workflow；长期规则写入 `.agents/guides/` 并登记在根 `AGENTS.md` |
 | `config.toml`、`.env*`、`*.db*`、`*.log` | 密钥与运行态 | **绝不入库**；按需清理 |
 | `/.1h-agent/`、`/.agent-data/`、`/.runtime-data/`、`/.1h-agent-*.md` | 历史遗留名，现行脚本与 core 均不再产生 | 出现即删（.gitignore 保留防护防复发） |
 
@@ -56,7 +56,8 @@
 | --- | --- | --- |
 | 维护/开发脚本 | `scripts/` 平铺 | 命名沿用 `动词-对象` 风格；更新 README/CI 引用 |
 | 专题维护指南 | `.agents/guides/` | 需含五节结构、≤50 行，并在根协议路由表登记；`check-agent-docs.sh` 强校验 |
-| 设计/计划文档 | `design/` | 本地维护中间产物，git 忽略不上传；文件头带「来源 + 状态」；完成即改「已归档」 |
+| 临时维护计划/实施记录 | `design/` | 仅限任务期间使用、完成后归档或删除的材料；git 忽略不上传；不得放长期维护指南或 workflow |
+| 长期维护指南/workflow | `.agents/guides/` | 按专题指南结构约束编写，并在根 `AGENTS.md` 路由表登记 |
 | 发布说明 | `.github/release-notes/vX.Y.Z.md` | 与 `Cargo.toml` 版本一致 |
 | TS 协议类型 | 只经 `scripts/core-bindings.sh sync` 进 `web/ts/` | CI 漂移检查兜底 |
 | 前端构建产物 | 只经 `pnpm build` 进 `web/dist/` | 不手改、不手造 |
