@@ -1,3 +1,7 @@
+import { escapeHtml, renderInline } from "./markdown/inline";
+import { fadeTrailingText } from "./markdown/fade";
+export { STREAM_FADE_CHARS } from "./markdown/fade";
+
 // Dependency-free Markdown renderer (extended from the v1 web UI port).
 // Safe by construction: no raw HTML passes through; all user content is
 // escaped before inline processing, and we only ever emit tags we generate
@@ -17,69 +21,6 @@
 // the final text run in position-based opacity/blur spans (the "develop"
 // effect). Both values are pure functions of the distance to the end, so
 // they are recomputed — never replayed — on every per-chunk innerHTML rebuild.
-
-const ESCAPE: Record<string, string> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&#39;",
-};
-
-function escapeHtml(text: string): string {
-  return String(text).replace(/[&<>"']/g, (ch) => ESCAPE[ch] ?? ch);
-}
-
-/** Emphasis runs on already-escaped plain text (never inside code spans). */
-function renderEmphasis(escaped: string): string {
-  let out = escaped.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
-  out = out.replace(/~~([^~]+)~~/g, "<del>$1</del>");
-  return out;
-}
-
-// Single pass over raw text so tokens cannot corrupt each other (e.g. bold
-// markers inside a code span, or a bare URL inside a link's href).
-const INLINE_TOKEN_RE =
-  /(`[^`\n]+`)|(!\[[^\]\n]*\]\(https?:\/\/[^)\s]+\))|(\[[^\]\n]+\]\(https?:\/\/[^)\s]+\))|(https?:\/\/[^\s<>()]+(?:\([^\s<>()]*\)[^\s<()]*)*)/g;
-
-const LINK_RE = /^(!?)\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)$/;
-
-function linkTag(url: string, label: string): string {
-  return (
-    `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">` +
-    `${renderEmphasis(escapeHtml(label))}</a>`
-  );
-}
-
-function renderInline(text: string): string {
-  let out = "";
-  let last = 0;
-  for (const m of text.matchAll(INLINE_TOKEN_RE)) {
-    const tok = m[0];
-    const idx = m.index ?? 0;
-    out += renderEmphasis(escapeHtml(text.slice(last, idx)));
-    if (tok.startsWith("`")) {
-      out += `<code>${escapeHtml(tok.slice(1, -1))}</code>`;
-    } else {
-      const link = LINK_RE.exec(tok);
-      if (link) {
-        // Images render as plain links: a local UI should not fire requests
-        // at arbitrary remote hosts just by displaying a message.
-        const label = link[1] === "!" ? link[2] || link[3] : link[2];
-        out += linkTag(link[3], label);
-      } else {
-        // Bare URL: trim trailing punctuation and keep it visible as text.
-        const url = tok.replace(/[.,;:!?'"]+$/, "");
-        out += linkTag(url, url);
-        if (url.length < tok.length) out += escapeHtml(tok.slice(url.length));
-      }
-    }
-    last = idx + tok.length;
-  }
-  out += renderEmphasis(escapeHtml(text.slice(last)));
-  return out;
-}
 
 // ---------- Fenced code blocks ----------
 
@@ -413,53 +354,6 @@ function renderBlocks(blocks: string[], depth: number): string {
   flushPara();
   closeLists();
   return html.join("\n");
-}
-
-// ---------- Streaming fade tail ----------
-
-/** Trailing characters that get the position-based opacity/blur ramp. */
-export const STREAM_FADE_CHARS = 18;
-
-const FADE_MIN_OPACITY = 0.15;
-const FADE_MAX_BLUR = 1.4;
-
-/** Splits an HTML text run (no tags) into visible characters; entities such
- * as `&amp;` or `&#39;` stay whole so wrapping cannot break them. */
-function visibleChars(run: string): string[] {
-  return run.match(/&(?:[a-zA-Z][a-zA-Z0-9]*|#\d+);|[\s\S]/g) ?? [];
-}
-
-/** Wraps the trailing `fadeWindow` visible characters of the final text run
- * in graded spans: opacity climbs toward the window edge while blur recedes
- * (newest = faintest + most blurred, "developing" into solid text). The run
- * sits just before the block's closing tags, so list items, table cells,
- * code bodies and link labels fade uniformly — no per-block plumbing. */
-function fadeTrailingText(html: string, fadeWindow: number): string {
-  if (!html || fadeWindow <= 0) return html;
-  // Block tags are joined with newlines (lists emit <li>/</li> as separate
-  // parts), so the closing run allows whitespace between and before tags.
-  const closings = /(?:<\/[a-zA-Z][^<>]*>\s*)+$/.exec(html)?.[0] ?? "";
-  let head = html.slice(0, html.length - closings.length);
-  const gap = /\s*$/.exec(head)?.[0] ?? "";
-  head = head.slice(0, head.length - gap.length);
-  const run = /[^<>]*$/.exec(head)?.[0] ?? "";
-  if (!run.trim()) return html;
-  const chars = visibleChars(run);
-  const start = Math.max(0, chars.length - fadeWindow);
-  let faded = "";
-  for (let i = start; i < chars.length; i++) {
-    const t = Math.min(1, (chars.length - 1 - i) / fadeWindow);
-    const opacity = FADE_MIN_OPACITY + (1 - FADE_MIN_OPACITY) * t;
-    const blur = FADE_MAX_BLUR * (1 - t);
-    faded += `<span class="fch" style="opacity:${opacity.toFixed(3)};filter:blur(${blur.toFixed(2)}px)">${chars[i]}</span>`;
-  }
-  return (
-    head.slice(0, head.length - run.length) +
-    chars.slice(0, start).join("") +
-    faded +
-    gap +
-    closings
-  );
 }
 
 /** Renders markdown to an HTML string; safe for `dangerouslySetInnerHTML`.
