@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `/` 根 | 仅标准文件：`README.md`、`AGENTS.md`、`LICENSE`、`THIRD_PARTY_NOTICES.md`、`Cargo.toml`、`Cargo.lock`、`.gitignore` | 根目录**不新增**其他文件；临时维护计划进 `design/`，长期维护指南进 `.agents/guides/` |
 | `.agents/` | AI 维护协议入口 `AGENTS.md` 的配套专题指南（`guides/`）、Windows 沙箱边界（`maintenance-env.md`）、本文 | 新专题指南须同时满足 `scripts/check-agent-docs.sh` 的结构约束并在根协议路由表登记 |
-| `.github/workflows/` | CI（frontend / quality / platform-tests）与 Release 流水线 | 引用脚本路径时与 `scripts/` 平铺布局保持一致 |
+| `.github/workflows/`、`.github/dependabot.yml` | CI（frontend / quality / platform-tests）、Release 流水线及每周 Action 更新 | 引用脚本路径时与 `scripts/` 平铺布局保持一致；Action 固定完整 SHA |
 | `.github/release-notes/` | 每个 tag 一份 `vX.Y.Z.md`，Release 流水线按名取用 | 新版本发布前必须补齐 |
 | `config/` | 仅 `config.example.toml`（配置样例与默认值快照） | 真实 `config.toml` 落在数据目录或系统配置目录，绝不入库 |
 | `crates/1h-agent-web/` | WebUI 适配器 crate（HTTP/SSE 服务、鉴权、内嵌前端） | UI 无关逻辑在独立的 core 仓库 |
