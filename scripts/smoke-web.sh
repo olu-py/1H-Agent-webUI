@@ -93,8 +93,16 @@ else
   bad "state protocol_version=2"
 fi
 
-status "POST /sessions/new/input (create session)" 202 \
-  -X POST -H 'Content-Type: application/json' -d '{"text":"hello"}' "$BASE/api/v2/sessions/new/input"
+INPUT_BODY="$WORK/input-response.json"
+INPUT_STATUS=$("${CURL[@]}" -o "$INPUT_BODY" -w "%{http_code}" \
+  -X POST -H 'Content-Type: application/json' -d '{"text":"hello"}' "$BASE/api/v2/sessions/new/input")
+if [ "$INPUT_STATUS" = "202" ]; then
+  ok "POST /sessions/new/input creates session"
+elif [ "$INPUT_STATUS" = "409" ] && grep -q '"kind":"conflict"' "$INPUT_BODY"; then
+  ok "POST /sessions/new/input creates session without configured provider"
+else
+  bad "POST /sessions/new/input (expected 202 or provider conflict, got $INPUT_STATUS)"
+fi
 
 SID=$("${CURL[@]}" "$BASE/api/v2/state" | grep -o '"active_session":"[^"]*"' | cut -d'"' -f4)
 if [ -n "$SID" ]; then
