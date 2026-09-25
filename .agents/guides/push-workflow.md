@@ -1,34 +1,36 @@
-# 三仓推送流程指南
+# GitHub PR 与本地同步指南
 
 ## 适用范围
 
-适用于 Core、TUI、WebUI 的日常改动。具备写权限的维护者直接在 `main` 上提交并推送；三个仓库的版本仍独立维护。
+适用于 Core、TUI、WebUI 的日常代码交付。三个仓库独立维护；日常改动统一通过功能分支和 PR 进入 `main`，版本号与 tag 仍分别管理。
 
 ## 入口
 
-- 开始前检查 `git status --short --branch`；确认没有未提交改动，切换到 `main`，执行 `git fetch origin` 和 `git pull --ff-only origin main` 后再修改。
-- 只暂存本次文件，检查 `git diff --cached --check` 和 `git diff --cached --stat`；运行与改动范围相称的测试和检查。
-- 提交后执行 `git push origin main`。不要创建功能分支或 PR，也不要 force push。
-- 推送后查看 GitHub Actions；检查失败时修复并追加提交，再推送到 `main`。
+- 开始前确认仓库根目录、remote、默认分支与 `git status --short --branch`；保护已有改动，再 fetch `origin/main` 并从最新 main 创建功能分支。
+- 只暂存本次文件；检查完整 staged diff 和 `git diff --cached --check`，按对应指南运行验证，再 commit 并记录 SHA。
+- 推送功能分支（首次用 `git push -u origin HEAD`），确认本地 SHA 与 upstream SHA 相同。
+- 创建 PR 指向 `main`；检查 head/base、diff、required checks、评审、冲突和仓库允许的合并方式。全部通过且用户授权后再合并。
+- 合并后读取 PR 的 merged 状态和 merge SHA；本地 fetch、切换 `main`、`git pull --ff-only origin main`，确认 `HEAD` 等于 `origin/main` 且工作区干净。
+
+> AI agents: 本仓库 commit/push、PR 创建/合并和合并后同步任务可使用项目 Skill [`git-pr-local-sync`](../skills/git-pr-local-sync/SKILL.md)，也可调用 `$git-pr-local-sync`；未发现 Skill 时按本指南执行。
 
 ## 不变量
 
-- `main` 允许有写权限的协作者直接推送；CI 在推送后运行，检查失败不会撤销已进入 `main` 的提交。
-- 不 force push 或删除 `main`；提交前检查 staged diff，避免混入其他改动。
-- 跨仓库 core 更新先提交并推送 Core，再将 TUI/WebUI 固定到明确的 40 位 `rev` 或稳定 tag，定向更新锁文件。
-- WebUI 更新 core 后从锁定的 Git checkout 同步 bindings；移除 path patch/环境覆盖并运行 `core-bindings.sh check`。
+- `main` 只接收已通过 PR 检查并合并的改动；不直接 push `main`，不使用 `--force` 掩盖分歧，不绕过 required checks 或保护规则；只有确认是个人功能分支、无人依赖且用户请求与项目策略允许时，才考虑 `--force-with-lease`。
+- 合并策略服从仓库设置；squash/rebase 后 head SHA 与 merge SHA 可不同。PR closed 不代表 merged。
+- GitHub 插件用于读取 PR/CI 和执行获准的 GitHub 操作；本地 Git 命令负责本地提交与分支同步。
+- 跨仓库更新先完成并合并 core，再在 TUI/WebUI 各自建 PR 更新锁文件与适配；WebUI bindings 必须来自锁定的 Git checkout。
 
 ## 诊断
 
 | 阻塞 | 处理 |
 | --- | --- |
-| `main` push 被拒 | 检查仓库是否已移除 PR/审核门槛、当前账号是否有写权限；不要 force push。 |
-| 本地 `main` 落后远端 | 先 `git fetch origin` 和 `git pull --ff-only origin main`；若无法快进，停止并查清分叉提交。 |
-| 推送后 CI 失败 | 修复问题，运行受影响检查，提交修复并再次 push；必要时用 revert 恢复。 |
-| 凭据异常 | 恢复 GitHub 凭据后重试原 push，不把 Token 写进命令、文件或日志。 |
+| main 或功能分支落后 | fetch 并确认差异；只在可快进时同步，分叉时保留提交并查明原因。 |
+| PR checks/评审/合并阻塞 | 按 GitHub 返回的具体规则修复并重新验证，不绕过门禁。 |
+| 合并成功但本地不一致 | fetch、切换 main、尝试 `--ff-only`；失败时不 reset，先查明本地提交和改动。 |
+| 凭据或权限异常 | 使用已授权的连接重试；不把 token 写入命令、文件、日志或回复。 |
 
 ## 验证
 
-- Core/TUI：Rust 文档检查、fmt、全目标 Clippy、locked 测试和 release build；查看 push 后平台 CI。
-- WebUI：Rust 文档检查、fmt、全目标 Clippy、locked 测试、bindings check、前端 typecheck/test/build。
-- 每次提交前运行 `git diff --check`；push 后确认远端 `main` SHA 与本地一致并查看 CI 结果。
+- 提交前检查 staged diff 与 `git diff --cached --check`，验证命令按 [Release](release.md) 和任务相关指南选择。
+- 合并前确认 PR checks 全绿；合并后确认 PR merged、`HEAD == origin/main`、工作区干净，并记录本地与远端 SHA。
