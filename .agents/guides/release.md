@@ -16,7 +16,7 @@
 - core、TUI、WebUI 版本号和 tag 独立；兼容性由锁定 core commit、协议版本、bindings check 和适配器测试确认。
 - 本地联调允许 path patch/`PROTIUM_CORE_PATH`；发布前必须移除覆盖，禁止提交 path 锁文件或来自未交付 core 的 bindings。
 - core 必须先 push；本仓库再定向更新 core、同步 bindings、构建并提交 `web/dist`，WebUI release 不隐含发布其他仓库。
-- 先提交并推送 main、核对远端 SHA，再建 tag；notes 文件必须是 `.github/release-notes/vX.Y.Z.md`。
+- 先按 Push workflow 通过 PR 合并到 main、核对远端 SHA，再建 tag；notes 文件必须是 `.github/release-notes/vX.Y.Z.md`。
 - 权威流程：版本校验 -> 三平台验证 -> 四目标归档和安装包 -> checksums -> GitHub Release。
 - 归档保留 README、LICENSE、第三方声明和示例配置；Release 包含归档、DEB、MSI、checksums 和 notices。
 - 不假定本机有 `gh`；凭据不得进入命令、文件、日志或回复，Actions 使用最小权限 token。

@@ -39,7 +39,7 @@ migration: 多界面低耦合改造已完成并归档（design/webui-migration.m
 | 会话、分支、迁移、持久化 | `protium-core (Git dependency): src/storage.rs`、`protium-core (Git dependency): src/session.rs` | [Storage](.agents/guides/storage.md)；涉及 Provider 状态时再读 Provider |
 | 配置上限、容量归一化、新增配置键 | `protium-core (Git dependency): src/config.rs` 的 `Config::load` clamp 区、`config/config.example.toml` | 无；同步默认值与 `defaults_are_bounded` 类测试 |
 | CI、版本、安装包、tag | `.github/workflows/`、`Cargo.toml` | [Release](.agents/guides/release.md) |
-| 分支推送、`main` 同步、PR 与跨仓库 core 更新顺序 | 各仓库 Git 分支、锁文件与 CI 状态 | [Push workflow](.agents/guides/push-workflow.md) |
+| 功能分支、PR 合并、`main` 同步与跨仓库 core 更新 | 各仓库 Git 分支、锁文件与 CI 状态 | [Push workflow](.agents/guides/push-workflow.md)；使用项目 Skill [`git-pr-local-sync`](.agents/skills/git-pr-local-sync/SKILL.md) |
 | 目录结构、新增文件归位、生成物来源与清理 | `.agents/repo-layout.md` | 无；任何写文件/删文件/搬文件的操作前读 |
 
 指南与源码不一致时以源码为准，并在同一改动中更新该指南；一个事实只归属根文档或一个专题。
