@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sessionDotKind, sessionListStatus } from "../src/lib/session-status";
+import { childSessionLabel } from "../src/lib/session-status";
 
 describe("sessionListStatus", () => {
   it("shows the ready marker only on the active session", () => {
@@ -59,5 +60,24 @@ describe("sessionDotKind", () => {
     expect(sessionDotKind("已取消", false, false)).toBe("");
     expect(sessionDotKind("已允许", false, false)).toBe("");
     expect(sessionDotKind("已拒绝", false, false)).toBe("");
+  });
+
+  it("uses machine child status to stop terminal children showing busy", () => {
+    expect(sessionDotKind("", false, false, "running")).toBe("busy");
+    expect(sessionDotKind("正在执行工具", false, false, "completed")).toBe("");
+    expect(sessionDotKind("", false, false, "cancelled")).toBe("");
+    expect(sessionDotKind("", false, false, "failed")).toBe("error");
+    expect(sessionDotKind("", false, false, "timed_out")).toBe("error");
+    expect(sessionDotKind("", false, false, "turn_limit")).toBe("error");
+  });
+});
+
+describe("childSessionLabel", () => {
+  it("localizes progress, terminal states, and unlimited turn counts", () => {
+    expect(childSessionLabel("running", "waiting_approval", 2, 4)).toBe("等待审批 第2/4轮");
+    expect(childSessionLabel("running", "running_tool", 3, 0, "file_write")).toBe("执行工具 第3轮 ·file_write");
+    expect(childSessionLabel("running", "queued", 0, 0)).toBe("排队中");
+    expect(childSessionLabel("completed")).toBe("已完成");
+    expect(childSessionLabel("failed")).toBe("失败");
   });
 });

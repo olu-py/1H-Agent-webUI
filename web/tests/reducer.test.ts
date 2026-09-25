@@ -252,13 +252,52 @@ describe("reducer", () => {
         type: "child_session_progress",
         child_session_id: "c1",
         status: "running",
+        phase: "running_tool",
         turn: 1,
         max_turns: 3,
         tool: "read_file",
       }),
     });
     expect(s.status).toContain("子会话");
-    expect(s.backgroundStatus["c1"]).toContain("1/3");
+    expect(s.backgroundStatus["c1"]).toContain("执行工具");
+    expect(s.backgroundStatus["c1"]).toContain("第1/3轮");
+    expect(s.childStatus["c1"]).toBe("running");
+
+    s = reduce(s, {
+      type: "event",
+      envelope: env(12, "s1", {
+        type: "child_session_progress",
+        child_session_id: "c1",
+        status: "completed",
+        turn: 2,
+        max_turns: 3,
+        tool: null,
+      }),
+    });
+    expect(s.backgroundStatus["c1"]).toBe("已完成");
+    expect(s.childStatus["c1"]).toBe("completed");
+  });
+
+  it("restores terminal child status and localized label from a snapshot", () => {
+    const s = reduce(initialState, {
+      type: "snapshot",
+      snapshot: snapshot({
+        sessions: [
+          { id: "s1", title: "parent", parent_id: null, busy: false, phase: "IDLE", status: "" },
+          {
+            id: "c1",
+            title: "child",
+            parent_id: "s1",
+            busy: false,
+            phase: "IDLE",
+            status: "",
+            child_status: "failed",
+          },
+        ],
+      }),
+    });
+    expect(s.childStatus["c1"]).toBe("failed");
+    expect(s.backgroundStatus["c1"]).toBe("失败");
   });
 
   it("tracks the compaction lifecycle", () => {

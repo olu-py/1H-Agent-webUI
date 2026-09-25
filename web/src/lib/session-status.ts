@@ -21,8 +21,49 @@ export function sessionListStatus(status: string, isActive: boolean): string {
  * always the fresher signal. */
 const ENDED_LABELS = new Set(["已完成", "已取消", "已允许", "已拒绝"]);
 
-export function sessionDotKind(status: string, busy: boolean, approval: boolean): string {
+const CHILD_PHASE_LABELS: Record<string, string> = {
+  queued: "排队中",
+  waiting_model: "等待模型",
+  streaming: "模型响应中",
+  running_tool: "执行工具",
+  waiting_approval_slot: "等待审批槽",
+  waiting_approval: "等待审批",
+};
+
+const CHILD_TERMINAL_LABELS: Record<string, string> = {
+  completed: "已完成",
+  failed: "失败",
+  turn_limit: "达到轮次上限",
+  timed_out: "执行超时",
+  cancelled: "已取消",
+};
+
+export function childSessionLabel(
+  status: string,
+  phase?: string,
+  turn = 0,
+  maxTurns = 0,
+  tool?: string | null,
+): string {
+  if (status !== "running") return CHILD_TERMINAL_LABELS[status] ?? "状态未知";
+  const phaseLabel = CHILD_PHASE_LABELS[phase ?? ""] ?? "运行中";
+  const turnLabel = turn > 0
+    ? maxTurns > 0 ? ` 第${turn}/${maxTurns}轮` : ` 第${turn}轮`
+    : "";
+  const toolLabel = tool ? ` ·${tool}` : "";
+  return `${phaseLabel}${turnLabel}${toolLabel}`;
+}
+
+export function sessionDotKind(
+  status: string,
+  busy: boolean,
+  approval: boolean,
+  childStatus = "",
+): string {
   if (approval) return "approval";
+  if (childStatus === "completed" || childStatus === "cancelled") return "";
+  if (childStatus === "failed" || childStatus === "timed_out" || childStatus === "turn_limit") return "error";
+  if (childStatus === "running") return "busy";
   const label = status.trim();
   if (label.includes("失败") || label.includes("需要配置")) return "error";
   if (busy) return "busy";
