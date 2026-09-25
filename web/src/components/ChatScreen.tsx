@@ -99,6 +99,7 @@ export function ChatScreen({
               sessions={state.sessions}
               active={state.activeSession}
               statuses={state.backgroundStatus}
+              childStatuses={state.childStatus}
               approval={state.approval}
               onActivate={activate}
               actions={actions}

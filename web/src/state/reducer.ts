@@ -15,6 +15,7 @@ import type { ActivityState, UsageInfo, ViewMessage } from "./transcript";
 import { reduceProvider } from "./provider";
 import { reduceSnapshot } from "./session";
 import { reduceTodoUpdated } from "./todo";
+import { childSessionLabel } from "../lib/session-status";
 
 export { MAX_CACHE_MESSAGES, PAGE_SIZE, toViewMessage } from "./transcript";
 export type { ActivityKind, ActivityState, UsageInfo, ViewMessage } from "./transcript";
@@ -58,6 +59,8 @@ export interface UiState {
   activity: ActivityState;
   /** Latest live status of background (non-active) sessions, for the tree. */
   backgroundStatus: Record<string, string>;
+  /** Machine-readable child statuses used for terminal-aware tree indicators. */
+  childStatus: Record<string, string>;
   /** Provider settings view (active + saved profiles, connected presets);
    * fetched when the settings dialog opens and after each apply. */
   providerSettings: ProviderSettingsDto | null;
@@ -110,6 +113,7 @@ export const initialState: UiState = {
   usage: null,
   activity: { kind: "idle", text: "就绪" },
   backgroundStatus: {},
+  childStatus: {},
   providerSettings: null,
   providerModels: null,
   memories: [],
@@ -470,12 +474,27 @@ export function reduce(state: UiState, action: Action): UiState {
           return global((s) => ({ ...s, snapshotDirty: true }));
         case "child_session_progress": {
           const childSession = str("child_session_id");
-          const label = `子会话 ${str("status")}（${num("turn")}/${num("max_turns")}）`;
+          const machineStatus = str("status");
+          const phase = str("phase");
+          const turn = num("turn");
+          const maxTurns = num("max_turns");
+          const label = childSessionLabel(
+            machineStatus,
+            phase,
+            turn,
+            maxTurns,
+            typeof event.tool === "string" ? event.tool : null,
+          );
+          const sessionLabel = machineStatus === "running" ? `子会话：${label}` : label;
           const withChild = (s: UiState): UiState =>
-            childSession ? { ...s, backgroundStatus: { ...s.backgroundStatus, [childSession]: label } } : s;
+            childSession ? {
+              ...s,
+              childStatus: { ...s.childStatus, [childSession]: machineStatus },
+              backgroundStatus: { ...s.backgroundStatus, [childSession]: label },
+            } : s;
           // Always record the child's live progress for the tree, even when
           // the owning parent is a background session.
-          return withChild(local((s) => ({ ...s, status: label }), label));
+          return withChild(local((s) => ({ ...s, status: sessionLabel }), sessionLabel));
         }
         case "local_command_finished":
           return local(

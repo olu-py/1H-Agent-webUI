@@ -2,7 +2,7 @@ import type { ApprovalDto, SessionStateDto } from "../types";
 import type { SessionNode } from "../lib/session-tree";
 import type { ChatActions } from "../hooks";
 import { buildSessionTree } from "../lib/session-tree";
-import { sessionDotKind } from "../lib/session-status";
+import { childSessionLabel, sessionDotKind } from "../lib/session-status";
 import { Icon } from "./icons";
 import { SessionMenu } from "./SessionMenu";
 
@@ -16,6 +16,7 @@ export function SessionTree({
   sessions,
   active,
   statuses,
+  childStatuses,
   approval,
   onActivate,
   actions,
@@ -24,6 +25,7 @@ export function SessionTree({
   active: string | null;
   /** Live per-session status text from background events. */
   statuses: Record<string, string>;
+  childStatuses: Record<string, string>;
   approval: ApprovalDto | null;
   onActivate: (id: string) => void;
   actions: ChatActions;
@@ -41,7 +43,17 @@ export function SessionTree({
       statuses[session.id] || session.status || "",
       session.busy,
       isApproval,
+      childStatuses[session.id] || session.child_status || "",
     );
+    const childStatusLabel = statuses[session.id] || (session.child_status
+      ? childSessionLabel(
+          session.child_status,
+          session.child_phase,
+          session.child_turn,
+          session.child_max_turns,
+          session.child_tool,
+        )
+      : "");
     return (
       <li key={session.id}>
         <div className="session-row">
@@ -54,6 +66,9 @@ export function SessionTree({
           >
             <span className={`session-dot ${dotKind}`} />
             <span className="session-title">{session.title || "(无标题)"}</span>
+            {session.parent_id && childStatusLabel ? (
+              <span className="session-status" title={childStatusLabel}>{childStatusLabel}</span>
+            ) : null}
             {session.parent_id ? (
               <span className="session-child" title="子会话">
                 <Icon name="fork" size={12} />
