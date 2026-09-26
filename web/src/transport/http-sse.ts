@@ -155,17 +155,29 @@ export class HttpSseTransport implements Transport {
 
   setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void> {
     return this.withBody("/api/v2/config/provider", {
+      // Existing profile id; empty/undefined + `custom` creates a new one.
+      id: options?.id?.trim() ? options.id : undefined,
       preset,
+      // Required by the core for a new custom provider; ignored for built-ins.
+      name: options?.name?.trim() ? options.name : undefined,
       model,
       base_url: options?.baseUrl,
       kind: options?.kind,
       // Send only when set: an explicit window override for models the
       // metadata chain cannot resolve.
       context_window_tokens: options?.contextWindowTokens,
+      // Reserved selectable-model list; persisted and echoed but not enforced.
+      enabled_models: options?.enabledModels,
       // Send only when non-empty: the key is write-only and must never be
       // needlessly transmitted (let alone stored or echoed).
       api_key: options?.apiKey?.trim() ? options.apiKey : undefined,
     });
+  }
+
+  removeProvider(id: string): Promise<void> {
+    return this.request(`/api/v2/config/provider/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }).then(() => undefined);
   }
 
   private withBody(path: string, body: unknown): Promise<void> {

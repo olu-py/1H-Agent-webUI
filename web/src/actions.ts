@@ -37,6 +37,7 @@ export interface Actions {
    * first, then runs `/delete`. Guarded like `forkSession`. */
   deleteSession(sessionId: string): Promise<void>;
   setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void>;
+  removeProvider(id: string): Promise<void>;
   /** Fetches the provider settings view into the store (settings dialog). */
   loadProviderSettings(): Promise<void>;
   /** Loads the active provider's model list into the store (settings

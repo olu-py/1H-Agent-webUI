@@ -54,9 +54,13 @@ export interface Transport {
    * timeout). Metadata only, never API keys. */
   providerModels(refresh?: boolean): Promise<ProviderModelsDto>;
   /** `POST /api/v2/config/provider` - applies the settings-screen edit.
-   * `options.apiKey` (when non-empty) is stored in the OS keyring first and
-   * is never echoed back. */
+   * `options.id` addresses the profile; omitting it with a `custom` preset
+   * creates a new named custom provider. `options.apiKey` (when non-empty) is
+   * stored in the OS keyring first and is never echoed back. */
   setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void>;
+  /** `DELETE /api/v2/config/provider/{id}` - removes a saved provider profile.
+   * Removing the active provider switches to the next saved profile. */
+  removeProvider(id: string): Promise<void>;
   /**
    * Subscribes to the event stream from `fromCursor` (exclusive). The
    * transport reconnects on error/EOF, always resuming from the cursor of the

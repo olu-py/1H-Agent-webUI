@@ -36,6 +36,7 @@ export function Composer({
   mode,
   busy,
   provider,
+  providerId,
   model,
   providerSettings,
   providerModels,
@@ -45,6 +46,7 @@ export function Composer({
   mode: string;
   busy: boolean;
   provider: string;
+  providerId: string;
   model: string;
   providerSettings: ProviderSettingsDto | null;
   providerModels: ProviderModelsDto | null;
@@ -296,6 +298,7 @@ export function Composer({
           />
           <ProviderSwitcher
             provider={provider}
+            providerId={providerId}
             model={model}
             providerSettings={providerSettings}
             providerModels={providerModels}

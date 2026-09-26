@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatActions } from "../hooks";
 import type { UiState } from "../state/reducer";
 import type { ProviderModelDto } from "../types";
 import {
+  BUILTIN_PROVIDERS,
   PROVIDER_KINDS,
-  PROVIDERS,
   defaultBaseUrl,
   modelsForProvider,
+  profileLabel,
   providerKey,
+  providerLabel,
 } from "../lib/providers";
 import { Icon } from "./icons";
 
@@ -42,11 +44,13 @@ function modelTitle(model: ProviderModelDto): string {
  * modal) so every entry point can open it: the composer's switcher trigger
  * and the command palette's "Provider 设置" entry.
  *
- * The form edits the active profile (preset / model / base URL / protocol)
- * plus an optional API key. The key is write-only: applying stores it in the
- * OS keyring (via the core's secrets module) and it is never echoed back -
- * the dialog can only show whether a key is currently resolved. Presets with
- * a resolved key carry a dot in the picker.
+ * The form edits one provider profile addressed by its stable id: the four
+ * built-ins (one row each), then every saved custom provider (unbounded), plus
+ * an "add custom provider" row. A custom provider carries a required unique
+ * display name; built-ins show the preset label. The form edits model / base
+ * URL / protocol plus an optional API key; the key is write-only (stored in
+ * the OS keyring by the core and never echoed back), so the dialog can only
+ * show whether one is currently resolved.
  */
 export function ProviderSettingsModal({
   state,
@@ -61,15 +65,44 @@ export function ProviderSettingsModal({
   const saved = settings?.saved ?? [];
   const connected = settings?.connected ?? [];
 
+  // One row per profile. Built-ins are addressed by preset key (their
+  // canonical id); custom rows carry the generated `custom-<uuid>` id.
+  const builtinRows = BUILTIN_PROVIDERS.map((p) => ({
+    id: p.key,
+    preset: p.key,
+    name: "",
+  }));
+  const customRows = saved
+    .filter((profile) => providerKey(profile.preset) === "custom")
+    .map((profile) => ({
+      id: profile.id,
+      preset: "custom" as const,
+      name: profile.name,
+    }));
+  const rows = useMemo(
+    () => [...builtinRows, ...customRows],
+    // eslint is not configured; the row lists are cheap and derived each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [settings],
+  );
+
+  // `providerId === ""` means "creating a new custom provider"; an existing
+  // id selects that profile. The initial selection is the active provider.
+  const [providerId, setProviderId] = useState(
+    () => settings?.active.id ?? state.providerId ?? "",
+  );
+  const [name, setName] = useState(() => settings?.active.name ?? "");
   const [preset, setPreset] = useState(() =>
     providerKey(settings?.active.preset ?? state.provider),
   );
+  const [creating, setCreating] = useState(false);
   const [selectedModel, setSelectedModel] = useState(settings?.active.model ?? state.model);
   const [baseUrl, setBaseUrl] = useState(settings?.active.base_url ?? "");
   const [kind, setKind] = useState(settings?.active.kind ?? "responses");
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
   const [windowTokens, setWindowTokens] = useState("");
   const [fetchingWindow, setFetchingWindow] = useState(false);
@@ -93,11 +126,17 @@ export function ProviderSettingsModal({
   useEffect(() => {
     if (!settings || seededRef.current === settings) return;
     seededRef.current = settings;
+    // A freshly fetched settings view re-seeds the form onto the active
+    // profile - never while the user is mid-create, so a rename in progress is
+    // not clobbered.
+    if (creating) return;
+    setProviderId(settings.active.id ?? settings.active.preset);
+    setName(settings.active.name ?? "");
     setPreset(providerKey(settings.active.preset));
     setSelectedModel(settings.active.model);
     setBaseUrl(settings.active.base_url);
     setKind(settings.active.kind);
-  }, [settings]);
+  }, [settings, creating]);
 
   // Close on Escape; clicking the backdrop closes (modal-card stops it).
   useEffect(() => {
@@ -108,28 +147,62 @@ export function ProviderSettingsModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const choosePreset = (key: string) => {
-    setPreset(key);
-    // Seed the form from the preset's saved profile when one exists, else
-    // from the preset template (same semantics as the core-side merge).
-    const savedProfile = saved.find((p) => p.preset === key);
-    setBaseUrl(savedProfile?.base_url ?? defaultBaseUrl(key));
-    setKind(savedProfile?.kind ?? "responses");
+  // Seed the form from a profile (or a preset template) and select that row.
+  const selectRow = (row: { id: string; preset: string; name: string }) => {
+    setCreating(false);
+    setConfirmingDelete(false);
+    setProviderId(row.id);
+    setPreset(providerKey(row.preset));
+    setName(row.name);
+    const savedProfile = saved.find((p) => p.id === row.id);
+    setBaseUrl(savedProfile?.base_url ?? defaultBaseUrl(row.preset));
+    setKind(savedProfile?.kind ?? (row.preset === "custom" ? "chat_completions" : "responses"));
     setWindowTokens("");
     setWindowNote(null);
-    const models = modelsForProvider(key);
+    const models = modelsForProvider(row.preset);
     if (!models.includes(selectedModel)) {
       setSelectedModel(savedProfile?.model ?? models[0] ?? "");
     }
   };
 
+  // Start a brand-new custom provider (unbounded: each apply mints a new id).
+  const startCreate = () => {
+    setCreating(true);
+    setConfirmingDelete(false);
+    setProviderId("");
+    setPreset("custom");
+    setName("");
+    setSelectedModel("");
+    setBaseUrl(defaultBaseUrl("custom"));
+    setKind("chat_completions");
+    setWindowTokens("");
+    setWindowNote(null);
+  };
+
+  const deleteSelected = async () => {
+    if (creating || !providerId) return;
+    await actions.removeProvider(providerId);
+    setConfirmingDelete(false);
+    onClose();
+  };
+
+  const trimmedName = name.trim();
+  // A new custom provider must be named; the core enforces the same rule and
+  // returns a localized `bad_request` if a client bypasses the disabled button.
+  const nameRequired = creating || providerKey(preset) === "custom";
+  const nameValid = !nameRequired || trimmedName.length > 0;
+  const canApply = !saving && selectedModel.trim().length > 0 && nameValid;
+
   const apply = async () => {
     const model = selectedModel.trim();
-    if (!model) return;
+    if (!model || !nameValid) return;
     setSaving(true);
     try {
       const window = windowTokens ? Number(windowTokens) : undefined;
       await actions.setProvider(preset, model, {
+        // Empty id + `custom` is the core's create signal.
+        id: providerId || undefined,
+        name: nameRequired ? trimmedName : undefined,
         baseUrl: baseUrl.trim(),
         kind,
         // Send only when the user filled it: an explicit window for models
@@ -185,7 +258,7 @@ export function ProviderSettingsModal({
   // matching. Otherwise the static preset list is the whole offer.
   const fetchedApplies =
     settings != null &&
-    providerKey(settings.active.preset) === preset &&
+    settings.active.id === providerId &&
     settings.active.base_url === baseUrl.trim();
   const fetchedModels = fetchedApplies ? (state.providerModels?.models ?? []) : [];
   const staticModels = modelsForProvider(preset).filter(
@@ -207,7 +280,7 @@ export function ProviderSettingsModal({
   const selectedWindowKnown =
     fetchedModels.some((m) => m.id === selected && m.context_window_tokens != null) ||
     modelsForProvider(preset).includes(selected);
-  const keyResolved = connected.includes(preset);
+  const keyResolved = providerId !== "" && connected.includes(providerId);
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -221,27 +294,47 @@ export function ProviderSettingsModal({
           <Icon name="sparkles" size={16} />
           Provider 设置
         </h3>
+        {confirmingDelete ? (
+          <div className="provider-confirm" role="alertdialog" aria-label="确认删除供应商">
+            <p>
+              确定删除供应商「{name || profileLabel({ name, preset })}」？密钥会保留在系统钥匙串中。
+            </p>
+            <div className="provider-confirm-actions">
+              <button type="button" className="ghost" onClick={() => setConfirmingDelete(false)}>
+                取消
+              </button>
+              <button type="button" className="primary danger" onClick={() => void deleteSelected()}>
+                删除
+              </button>
+            </div>
+          </div>
+        ) : null}
         <div className="provider-modal-body">
           <section className="provider-modal-section">
             <div className="provider-modal-label">Provider</div>
             <div className="provider-presets" role="listbox" aria-label="Provider">
-              {PROVIDERS.map((p) => {
-                const isConnected = connected.includes(p.key);
-                const isSaved = saved.some((s) => s.preset === p.key);
+              {rows.map((row) => {
+                const isConnected = connected.includes(row.id);
+                const isSaved = saved.some((s) => s.id === row.id);
+                const isCustom = providerKey(row.preset) === "custom";
+                const label = isCustom
+                  ? row.name || "（未命名）"
+                  : providerLabel(providerKey(row.preset));
+                const active = !creating && row.id === providerId;
                 return (
                   <button
-                    key={p.key}
+                    key={row.id}
                     type="button"
-                    className={`provider-preset ${p.key === preset ? "active" : ""}`}
+                    className={`provider-preset ${active ? "active" : ""}`}
                     role="option"
-                    aria-selected={p.key === preset}
-                    onClick={() => choosePreset(p.key)}
+                    aria-selected={active}
+                    onClick={() => selectRow(row)}
                   >
                     <span className="provider-preset-name">
-                      {p.label}
+                      {label}
                       {isSaved ? <span className="provider-tag">已配置</span> : null}
                     </span>
-                    {p.key === preset ? (
+                    {active ? (
                       <Icon name="check" size={12} />
                     ) : isConnected ? (
                       <span className="provider-dot" title="密钥已就绪" />
@@ -249,9 +342,39 @@ export function ProviderSettingsModal({
                   </button>
                 );
               })}
+              <button
+                type="button"
+                className={`provider-preset provider-add ${creating ? "active" : ""}`}
+                role="option"
+                aria-selected={creating}
+                onClick={startCreate}
+              >
+                <span className="provider-preset-name">＋ 添加自定义供应商</span>
+                {creating ? <Icon name="check" size={12} /> : null}
+              </button>
             </div>
           </section>
           <section className="provider-modal-section provider-form">
+            {nameRequired ? (
+              <label className="provider-field">
+                <span className="provider-modal-label">
+                  名称
+                  <span className={`provider-key-status ${nameValid ? "ok" : ""}`}>
+                    {nameValid ? "必填" : "必填：不能为空"}
+                  </span>
+                </span>
+                <input
+                  className="provider-name-input"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="例如：公司网关"
+                  maxLength={64}
+                  spellCheck={false}
+                  aria-label="供应商名称"
+                  aria-invalid={!nameValid}
+                />
+              </label>
+            ) : null}
             <label className="provider-field">
               <span className="provider-modal-label">模型</span>
               {models.length > 0 ? (
@@ -390,13 +513,26 @@ export function ProviderSettingsModal({
         </div>
         {state.lastError ? <p className="provider-form-error">{state.lastError}</p> : null}
         <div className="provider-modal-actions">
+          {!creating && providerId ? (
+            <button
+              type="button"
+              className="ghost provider-delete"
+              disabled={saving}
+              onClick={() => setConfirmingDelete(true)}
+            >
+              <Icon name="x" size={12} /> 删除
+            </button>
+          ) : (
+            <span />
+          )}
           <button type="button" className="ghost" onClick={onClose}>
             取消
           </button>
           <button
             type="button"
             className="primary"
-            disabled={saving || !selectedModel.trim()}
+            disabled={!canApply}
+            title={nameValid ? undefined : "请输入供应商名称"}
             onClick={() => void apply()}
           >
             {saving ? "应用中…" : "应用"}

@@ -51,6 +51,7 @@ function modelMeta(model: ProviderModelOption): string {
  */
 export function ProviderSwitcher({
   provider,
+  providerId,
   model,
   providerSettings,
   providerModels,
@@ -58,18 +59,24 @@ export function ProviderSwitcher({
   onSelectModel,
   onOpen,
 }: {
+  /** Human-facing active provider label (custom name or preset label). */
   provider: string;
+  /** Stable active provider id; groups and switches address providers by it. */
+  providerId: string;
   model: string;
   providerSettings: ProviderSettingsDto | null;
   providerModels: ProviderModelsDto | null;
   /** Called once each time the panel opens to lazy-load settings/models. */
   onExpand: () => void;
-  onSelectModel: (preset: string, model: string) => void;
+  /** `providerId` is the stable id: built-in preset key or `custom-<uuid>`. */
+  onSelectModel: (providerId: string, model: string) => void;
   /** Opens the app-level settings dialog. */
   onOpen: () => void;
 }) {
-  const activeKey = providerKey(provider);
-  const activeLabel = providerLabel(activeKey);
+  // `provider` is already the core's display label (custom name or built-in
+  // label); fall back to the registry label when it is missing.
+  const activeId = providerId || providerKey(provider);
+  const activeLabel = provider || providerLabel(providerKey(provider));
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
   const [triggerRect, setTriggerRect] = useState<TriggerRect | null>(null);
@@ -86,11 +93,11 @@ export function ProviderSwitcher({
     () =>
       buildProviderModelGroups({
         settings: providerSettings,
-        provider,
+        providerId: activeId,
         model,
         providerModels: providerModels?.models ?? null,
       }),
-    [providerSettings, provider, model, providerModels],
+    [providerSettings, activeId, model, providerModels],
   );
 
   const options = useMemo(
@@ -105,9 +112,9 @@ export function ProviderSwitcher({
   // first connected model is selected.
   useEffect(() => {
     if (!open) return;
-    const index = options.findIndex((option) => option.groupKey === activeKey && option.id === model);
+    const index = options.findIndex((option) => option.groupKey === activeId && option.id === model);
     setSelected(index >= 0 ? index : 0);
-  }, [open, activeKey, model, options]);
+  }, [open, activeId, model, options]);
 
   // Keep the keyboard-selected row visible without stealing DOM focus from
   // the combobox trigger (the selected row is described by aria-activedescendant).
@@ -348,7 +355,7 @@ export function ProviderSwitcher({
                               (option) =>
                                 option.groupKey === group.key && option.id === modelOption.id,
                             );
-                            const active = group.key === activeKey && modelOption.id === model;
+                            const active = group.key === activeId && modelOption.id === model;
                             return (
                               <button
                                 key={modelOption.id}

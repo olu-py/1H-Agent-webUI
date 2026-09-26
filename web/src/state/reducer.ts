@@ -41,7 +41,11 @@ export interface UiState {
   connected: boolean;
   activeSession: string | null;
   sessions: SessionStateDto[];
+  /** Human-facing active provider label (custom name or built-in label). */
   provider: string;
+  /** Stable active provider id (`AppSnapshotV2.provider_id`); the address used
+   * by every provider mutation. Falls back to `provider` on older snapshots. */
+  providerId: string;
   model: string;
   mode: string;
   approval: ApprovalDto | null;
@@ -103,6 +107,7 @@ export const initialState: UiState = {
   activeSession: null,
   sessions: [],
   provider: "",
+  providerId: "",
   model: "",
   mode: "",
   approval: null,

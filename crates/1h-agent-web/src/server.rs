@@ -23,7 +23,7 @@ use axum::{
         Html, IntoResponse, Response,
         sse::{Event as SseEvent, KeepAlive, Sse},
     },
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
 };
 use futures_util::StreamExt;
 use protium_core::{
@@ -60,12 +60,24 @@ struct ApprovalBody {
 /// Body of `POST /api/v2/config/provider` (the settings-screen edit).
 ///
 /// `api_key` is optional: when present (non-empty) it is stored in the OS
-/// keyring for `preset` *before* the profile is applied, then dropped - it is
-/// never serialized into a response, log line, or the config file. All other
-/// fields are non-secret.
+/// keyring for the resolved provider id *before* the profile is applied, then
+/// dropped - it is never serialized into a response, log line, or the config
+/// file. All other fields are non-secret.
+///
+/// `id` addresses the profile being edited. Omitting it (or sending it empty)
+/// with `preset = "custom"` creates a new custom provider: the core mints a
+/// fresh `custom-<uuid>` id, so several named custom providers can coexist.
+/// `name` is required for a new custom provider and used for display.
 #[derive(Deserialize)]
 struct ProviderConfigBody {
+    /// Existing provider id (built-in preset key or `custom-<uuid>`); empty
+    /// creates a new profile from `preset`.
+    #[serde(default)]
+    id: Option<String>,
     preset: String,
+    /// Display name for a custom provider; ignored for built-ins.
+    #[serde(default)]
+    name: Option<String>,
     model: String,
     #[serde(default)]
     base_url: Option<String>,
@@ -76,6 +88,9 @@ struct ProviderConfigBody {
     /// resolve; the core clamps it to the same bounds as `Config::load`.
     #[serde(default)]
     context_window_tokens: Option<u64>,
+    /// Reserved selectable-model list; persisted and echoed but not enforced.
+    #[serde(default)]
+    enabled_models: Option<Vec<String>>,
     #[serde(default)]
     api_key: Option<String>,
 }
@@ -144,6 +159,10 @@ fn build_router(state: ServerState) -> Router {
             get(get_provider_settings).post(post_provider_config),
         )
         .route("/api/v2/config/provider/models", get(get_provider_models))
+        .route(
+            "/api/v2/config/provider/{id}",
+            delete(delete_provider_config),
+        )
         .route("/api/v2/memories", get(get_memories).post(post_memory))
         .route(
             "/api/v2/memories/{id}",
@@ -456,6 +475,18 @@ async fn post_provider_config(
             body.0.preset
         )));
     };
+    // Empty/absent id: address the profile by its family key. For `custom`
+    // the empty id is the create signal - the core mints a fresh id so
+    // several named custom providers can coexist.
+    let provider_id = body.0.id.as_deref().map(str::trim).unwrap_or("");
+    // A brand-new custom provider needs a name up front (the core enforces it
+    // too); reject here so the client gets a clean 400 without a key write.
+    if provider_id.is_empty() && preset == protium_core::config::ProviderPreset::Custom {
+        let name = body.0.name.as_deref().map(str::trim).unwrap_or("");
+        if name.is_empty() {
+            return api_error_response(ApiError::bad_request("自定义供应商名称不能为空"));
+        }
+    }
     let kind = match body.0.kind.as_deref() {
         None => None,
         Some(tag) => match protium_core::config::ProviderKind::parse_wire_tag(tag) {
@@ -475,11 +506,18 @@ async fn post_provider_config(
     if let Some(api_key) = body.0.api_key.as_deref().map(str::trim)
         && !api_key.is_empty()
     {
-        if let Err(error) = protium_core::secrets::store_api_key_cached(preset, api_key) {
-            tracing::warn!(
-                "keyring write failed for {}; the key applies to this run only",
-                preset.key_id()
-            );
+        // Existing id: exactly that profile's keyring entry. New custom id:
+        // the id is minted inside the core, so the key is stored under the
+        // family key and re-used by preset resolution for the new profile's
+        // first run (`api_key_cached` falls back to the environment/family
+        // entry only when the id has no entry of its own).
+        let key_id = if provider_id.is_empty() {
+            preset.key_id()
+        } else {
+            provider_id
+        };
+        if let Err(error) = protium_core::secrets::store_api_key_cached(preset, key_id, api_key) {
+            tracing::warn!("keyring write failed for {key_id}; the key applies to this run only");
             key_warning = Some(format!(
                 "密钥已生效（本次运行），但写入系统钥匙串失败：{error}"
             ));
@@ -488,11 +526,14 @@ async fn post_provider_config(
     match state
         .handle
         .set_provider_profile(
+            provider_id,
             preset,
+            body.0.name.as_deref(),
             &body.0.model,
             body.0.base_url.as_deref(),
             kind,
             body.0.context_window_tokens,
+            body.0.enabled_models.clone(),
         )
         .await
     {
@@ -505,6 +546,23 @@ async fn post_provider_config(
             })),
         )
             .into_response(),
+        Err(error) => api_error_response(error),
+    }
+}
+
+/// `DELETE /api/v2/config/provider/{id}` - removes a saved provider profile
+/// by id. Removing the active provider switches to the next saved profile (or
+/// the OpenAI default); the API key stays in the OS keyring.
+async fn delete_provider_config(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Response {
+    if !authorized(&state, &headers) {
+        return unauthorized();
+    }
+    match state.handle.remove_provider(&id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => api_error_response(error),
     }
 }

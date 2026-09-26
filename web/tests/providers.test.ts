@@ -4,6 +4,7 @@ import {
   PROVIDERS,
   buildProviderModelGroups,
   modelsForProvider,
+  profileLabel,
   providerKey,
   providerLabel,
 } from "../src/lib/providers";
@@ -61,6 +62,19 @@ describe("PROVIDERS", () => {
   });
 });
 
+describe("profileLabel", () => {
+  it("prefers a custom provider's name", () => {
+    expect(profileLabel({ name: "Gateway A", preset: "custom" })).toBe("Gateway A");
+    expect(profileLabel({ name: "  Padded  ", preset: "custom" })).toBe("Padded");
+  });
+
+  it("falls back to the preset label for built-ins and unnamed profiles", () => {
+    expect(profileLabel({ preset: "deepseek" })).toBe("DeepSeek");
+    expect(profileLabel({ name: "", preset: "custom" })).toBe("Custom compatible");
+    expect(profileLabel({ name: "   ", preset: "custom" })).toBe("Custom compatible");
+  });
+});
+
 describe("buildProviderModelGroups", () => {
   const providerModels: ProviderModelDto[] = [
     { id: "gateway-model", context_window_tokens: 256000, max_output_tokens: 8192 },
@@ -69,55 +83,103 @@ describe("buildProviderModelGroups", () => {
 
   const settings: ProviderSettingsDto = {
     active: {
+      id: "deepseek",
       preset: "deepseek",
+      name: "",
       kind: "responses",
       model: "deepseek-v4-flash",
       base_url: "https://api.deepseek.com",
+      enabled_models: [],
     },
     saved: [
       {
+        id: "custom-aaaa",
+        name: "Gateway A",
         preset: "custom",
         kind: "chat_completions",
         model: "my-compatible-model",
         base_url: "https://example.com/v1",
+        enabled_models: [],
       },
       {
+        // Two custom providers share the `custom` family but have distinct ids
+        // and names - the group key must be the id, not the preset.
+        id: "custom-bbbb",
+        name: "Gateway B",
+        preset: "custom",
+        kind: "chat_completions",
+        model: "second-model",
+        base_url: "https://second.example.com/v1",
+        enabled_models: [],
+      },
+      {
+        id: "nope",
+        name: "",
         preset: "nope",
         kind: "responses",
         model: "unknown-provider-model",
         base_url: "https://unknown.example.com/v1",
+        enabled_models: [],
       },
     ],
-    connected: ["qwen", "deepseek", "custom", "nope"],
+    connected: ["qwen", "deepseek", "custom-aaaa", "custom-bbbb", "nope"],
   };
 
   it("groups only connected providers in registry order and preserves labels", () => {
     const groups = buildProviderModelGroups({
       settings,
-      provider: "deepseek",
+      providerId: "deepseek",
       model: "deepseek-v4-flash",
       providerModels,
     });
 
+    // Built-ins keep registry order; custom ids follow in core order.
     expect(groups.map((group) => group.key)).toEqual([
       "deepseek",
       "qwen",
-      "custom",
+      "custom-aaaa",
+      "custom-bbbb",
       "nope",
     ]);
     expect(groups.map((group) => group.label)).toEqual([
       "DeepSeek",
       "Qwen / Bailian",
-      "Custom compatible",
+      "Gateway A",
+      "Gateway B",
+      "nope",
+    ]);
+    expect(groups.map((group) => group.preset)).toEqual([
+      "deepseek",
+      "qwen",
+      "custom",
+      "custom",
       "nope",
     ]);
     expect(groups.map((group) => group.key)).not.toContain("openai");
   });
 
+  it("keys two custom providers on the same family as separate groups", () => {
+    const groups = buildProviderModelGroups({
+      settings,
+      providerId: "custom-aaaa",
+      model: "my-compatible-model",
+      providerModels: null,
+    });
+
+    const gatewayA = groups.find((group) => group.key === "custom-aaaa");
+    const gatewayB = groups.find((group) => group.key === "custom-bbbb");
+    expect(gatewayA?.label).toBe("Gateway A");
+    expect(gatewayB?.label).toBe("Gateway B");
+    expect(gatewayA?.preset).toBe("custom");
+    // Neither custom provider inherits the other's models.
+    expect(gatewayA?.models).toEqual([{ id: "my-compatible-model" }]);
+    expect(gatewayB?.models).toEqual([{ id: "second-model" }]);
+  });
+
   it("merges dynamic active-provider models and preserves their metadata", () => {
     const [deepseek] = buildProviderModelGroups({
       settings,
-      provider: "deepseek",
+      providerId: "deepseek",
       model: "deepseek-v4-flash",
       providerModels,
     });
@@ -137,12 +199,12 @@ describe("buildProviderModelGroups", () => {
   it("falls back to saved models for custom and unknown providers", () => {
     const groups = buildProviderModelGroups({
       settings,
-      provider: "deepseek",
+      providerId: "deepseek",
       model: "deepseek-v4-flash",
       providerModels,
     });
 
-    expect(groups.find((group) => group.key === "custom")?.models).toEqual([
+    expect(groups.find((group) => group.key === "custom-aaaa")?.models).toEqual([
       { id: "my-compatible-model" },
     ]);
     expect(groups.find((group) => group.key === "nope")?.models).toEqual([
@@ -150,10 +212,10 @@ describe("buildProviderModelGroups", () => {
     ]);
   });
 
-  it("uses the active provider as a fallback before settings has loaded", () => {
+  it("uses the active provider id as a fallback before settings has loaded", () => {
     const groups = buildProviderModelGroups({
       settings: null,
-      provider: "DeepSeek",
+      providerId: "deepseek",
       model: "deepseek-v4-flash",
       providerModels,
     });
@@ -166,7 +228,7 @@ describe("buildProviderModelGroups", () => {
   it("does not include the active provider when loaded settings marks it disconnected", () => {
     const groups = buildProviderModelGroups({
       settings: { ...settings, connected: ["deepseek"] },
-      provider: "openai",
+      providerId: "openai",
       model: "gpt-5",
       providerModels: null,
     });

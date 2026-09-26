@@ -180,6 +180,7 @@ export function ChatScreen({
               mode={state.mode}
               busy={state.busy}
               provider={state.provider}
+              providerId={state.providerId}
               model={state.model}
               providerSettings={state.providerSettings}
               providerModels={state.providerModels}

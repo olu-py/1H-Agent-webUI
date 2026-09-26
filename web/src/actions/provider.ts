@@ -20,8 +20,27 @@ export function createProviderActions(
       store.dispatch({ type: "providerModelsCleared" });
       await refreshSnapshot();
       // Refresh the settings view too: `connected` may have changed (a newly
-      // stored key) and the dialog reads from this slice. A failure here must
-      // not look like a failed apply - the edit itself succeeded.
+      // stored key) and the dialog reads from this slice - including the id
+      // the core minted for a just-created custom provider. A failure here
+      // must not look like a failed apply: the edit itself succeeded.
+      try {
+        const settings = await transport.providerSettings();
+        store.dispatch({ type: "providerSettings", settings });
+      } catch {
+        // best-effort: the next dialog open refetches
+      }
+    } catch (error) {
+      store.dispatch({ type: "error", message: errorMessage(error) });
+    }
+  };
+
+  const removeProvider = async (id: string): Promise<void> => {
+    try {
+      await transport.removeProvider(id);
+      store.dispatch({ type: "providerModelsCleared" });
+      // Refresh both views: the active provider may have fallen back to
+      // another profile, and the deleted row must disappear from the list.
+      await refreshSnapshot();
       try {
         const settings = await transport.providerSettings();
         store.dispatch({ type: "providerSettings", settings });
@@ -57,5 +76,5 @@ export function createProviderActions(
       return null;
     }
   };
-  return { setProvider, loadProviderSettings, loadProviderModels };
+  return { setProvider, removeProvider, loadProviderSettings, loadProviderModels };
 }

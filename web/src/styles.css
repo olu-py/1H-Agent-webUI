@@ -1262,6 +1262,48 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   flex: none;
 }
 
+/* Custom provider management: the trailing add row, inline rename field,
+   delete affordance and the delete confirmation. */
+.provider-add {
+  margin-top: var(--space-2);
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  font-weight: 600;
+}
+.provider-add:hover { color: var(--accent); border-color: var(--accent); }
+.provider-name-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: 0.5em 0.7em;
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+.provider-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.provider-name-input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+.provider-delete { color: var(--danger); margin-right: auto; }
+.provider-delete:hover:enabled { background: var(--danger-soft); }
+.provider-confirm {
+  margin-top: var(--space-3);
+  padding: 0.6em 0.8em;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  font-size: var(--text-sm);
+}
+.provider-confirm p { margin: 0 0 var(--space-2); }
+.provider-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 /* ---------- Messages ---------- */
 .messages {
   flex: 1;
