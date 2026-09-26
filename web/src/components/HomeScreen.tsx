@@ -86,6 +86,7 @@ export function HomeScreen({
               <ModeSegmented value={pendingMode} ariaLabel="默认模式" onSelect={setPendingMode} />
               <ProviderSwitcher
                 provider={state.provider}
+                providerId={state.providerId}
                 model={state.model}
                 providerSettings={state.providerSettings}
                 providerModels={state.providerModels}

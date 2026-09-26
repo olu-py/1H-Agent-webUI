@@ -18,6 +18,7 @@ export interface ChatActions {
   forkSession(sessionId: string): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
   setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void>;
+  removeProvider(id: string): Promise<void>;
   loadProviderSettings(): Promise<void>;
   loadProviderModels(refresh?: boolean): Promise<ProviderModelsDto | null>;
   loadMemories(query?: string, includeDeleted?: boolean): Promise<void>;
@@ -38,6 +39,7 @@ export function useChatActions(actions: Actions): ChatActions {
     forkSession: actions.forkSession,
     deleteSession: actions.deleteSession,
     setProvider: actions.setProvider,
+    removeProvider: actions.removeProvider,
     loadProviderSettings: actions.loadProviderSettings,
     loadProviderModels: actions.loadProviderModels,
     loadMemories: actions.loadMemories,

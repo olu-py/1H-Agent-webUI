@@ -26,6 +26,9 @@ export function reduceSnapshot(state: UiState, snapshot: AppSnapshotV2): UiState
       ])),
     },
     provider: snapshot.provider,
+    // `provider_id` is the identity; fall back to the label only if an older
+    // core omitted it (additive protocol growth).
+    providerId: snapshot.provider_id ?? snapshot.provider,
     model: snapshot.model,
     mode: snapshot.mode,
     approval: snapshot.approval,

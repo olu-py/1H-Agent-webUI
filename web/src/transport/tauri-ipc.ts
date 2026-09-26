@@ -81,6 +81,10 @@ export class TauriIpcTransport implements Transport {
     return this.invoke("setProvider", { preset, model, options });
   }
 
+  removeProvider(id: string): Promise<void> {
+    return this.invoke("removeProvider", { id });
+  }
+
   subscribe(_fromCursor: number, _onEvent: (envelope: Envelope) => void): Subscription {
     // Desktop phase: register the Tauri event listener first, then request a
     // replay from `fromCursor`; unregister on unsubscribe.

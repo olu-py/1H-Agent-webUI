@@ -1,8 +1,4 @@
-import type {
-  ProviderModelDto,
-  ProviderProfileDto,
-  ProviderSettingsDto,
-} from "../types";
+import type { ProviderModelDto, ProviderSettingsDto } from "../types";
 
 /**
  * Provider presets + their selectable models for the Web UI switcher.
@@ -81,6 +77,15 @@ export const PROVIDERS: ProviderDef[] = [
   },
 ];
 
+/**
+ * Presets the settings dialog offers as one-off built-in rows (`custom` is
+ * excluded: it is multi-instance and reached via the "add custom provider"
+ * row instead).
+ */
+export const BUILTIN_PROVIDERS: ProviderDef[] = PROVIDERS.filter(
+  (p) => p.key !== "custom",
+);
+
 /** Display label for a preset key (tolerant of unknown keys). */
 export function providerLabel(key: string): string {
   return PROVIDERS.find((p) => p.key === key)?.label ?? key;
@@ -103,19 +108,32 @@ export const PROVIDER_KINDS = [
 ] as const;
 
 /**
- * Normalizes a provider string coming back from the server to a registry key.
+ * Normalizes a provider string coming back from the server to a preset key.
  *
- * The v2 snapshot reports the preset *label* ("DeepSeek") while
- * `POST /api/v2/config/provider` (and this registry) speak the preset *key*
- * ("deepseek"). Matching by key alone therefore leaves the switcher with no
- * active preset and an empty model list. This resolves keys directly and
- * labels case-insensitively; anything else (custom/unknown) passes through.
+ * The template family always arrives as the preset key (`ProviderProfileDto.preset`
+ * or `preset` in a request), but a couple of legacy paths can hand us the
+ * human label ("DeepSeek") instead. This resolves keys directly and labels
+ * case-insensitively; anything else (a `custom-<uuid>` id or an unknown value)
+ * passes through unchanged, so it is safe to call on either a key or an id.
  */
 export function providerKey(value: string): string {
   const trimmed = value.trim();
   if (PROVIDERS.some((p) => p.key === trimmed)) return trimmed;
   const lower = trimmed.toLowerCase();
   return PROVIDERS.find((p) => p.label.toLowerCase() === lower)?.key ?? trimmed;
+}
+
+/**
+ * Display label for one saved/active provider profile.
+ *
+ * Named custom providers show their user-assigned name; built-ins (and legacy
+ * unnamed profiles, whose core `display_label()` falls back to the preset
+ * label) show the preset label. `id` is the stable identity, `preset` only the
+ * template family.
+ */
+export function profileLabel(profile: { name?: string; preset: string }): string {
+  const name = (profile.name ?? "").trim();
+  return name || providerLabel(providerKey(profile.preset));
 }
 
 
@@ -128,59 +146,72 @@ export interface ProviderModelOption {
 
 /** One provider heading plus its selectable models. */
 export interface ProviderModelGroup {
+  /** Stable provider id (built-in preset key or generated `custom-<uuid>`). */
   key: string;
+  /** Display name: the custom provider's `name`, else the preset label. */
   label: string;
+  /** Template family key (`openai` / `custom` / ...). */
+  preset: string;
   models: ProviderModelOption[];
-}
-
-function providerProfileFor(
-  saved: ProviderProfileDto[] | undefined,
-  key: string,
-): ProviderProfileDto | undefined {
-  return saved?.find((profile) => providerKey(profile.preset) === key);
 }
 
 /**
  * Builds connected provider groups for the inline switcher.
  *
- * `connected` is authoritative. Before settings has loaded, the active
- * provider is used as a graceful single-group fallback. The active provider's
+ * Since the provider id became the identity, `connected` and the snapshot's
+ * `provider_id` are ids — several custom providers can share the `custom`
+ * template, so groups are keyed by id (never by preset) and labelled with the
+ * saved `name`. `connected` is authoritative; before settings has loaded the
+ * active provider becomes a single-group fallback. The active provider's
  * dynamic model cache is merged only into its own group; other connected
  * providers use their static registry lists plus their saved model.
  */
 export function buildProviderModelGroups({
   settings,
-  provider,
+  providerId,
   model,
   providerModels,
 }: {
   settings: ProviderSettingsDto | null;
-  provider: string;
+  /** Active provider id (from `AppSnapshotV2.provider_id`). */
+  providerId: string;
   model: string;
   providerModels: ProviderModelDto[] | null;
 }): ProviderModelGroup[] {
-  const activeKey = providerKey(provider);
+  const activeId = providerId.trim();
   const connected = settings
-    ? [...new Set(settings.connected.map(providerKey).filter(Boolean))]
-    : activeKey
-      ? [activeKey]
+    ? [...new Set(settings.connected.map((id) => id.trim()).filter(Boolean))]
+    : activeId
+      ? [activeId]
       : [];
 
-  // Preserve core registry order, then append custom/unknown connected keys.
+  const savedById = new Map((settings?.saved ?? []).map((profile) => [profile.id, profile]));
+  const presetOf = (id: string): string =>
+    savedById.get(id)?.preset ??
+    // The active profile may not be in `saved` yet during the first load.
+    (id === activeId ? settings?.active.preset ?? id : id);
+  const labelOf = (id: string): string => {
+    const profile = savedById.get(id) ?? (id === activeId ? settings?.active : undefined);
+    return profile ? profileLabel(profile) : providerLabel(providerKey(presetOf(id)));
+  };
+
+  // Preserve core registry order for built-ins, then append custom/unknown
+  // provider ids in the order the core reported them.
   const ordered = [
     ...PROVIDERS.map((p) => p.key),
-    ...connected.filter((key) => !PROVIDERS.some((p) => p.key === key)),
+    ...connected.filter((id) => !PROVIDERS.some((p) => p.key === id)),
   ];
-  const keys = ordered.filter((key) => connected.includes(key));
+  const ids = ordered.filter((id) => connected.includes(id));
 
-  return keys.map((key) => {
+  return ids.map((id) => {
     const byId = new Map<string, ProviderModelOption>();
-    const add = (id: string) => {
-      if (id && !byId.has(id)) byId.set(id, { id });
+    const add = (modelId: string) => {
+      if (modelId && !byId.has(modelId)) byId.set(modelId, { id: modelId });
     };
 
-    for (const id of modelsForProvider(key)) add(id);
-    if (key === activeKey) {
+    const preset = providerKey(presetOf(id));
+    for (const modelId of modelsForProvider(preset)) add(modelId);
+    if (id === activeId) {
       for (const dto of providerModels ?? []) {
         byId.set(dto.id, {
           id: dto.id,
@@ -190,9 +221,9 @@ export function buildProviderModelGroups({
       }
       if (model) add(model);
     }
-    const savedModel = providerProfileFor(settings?.saved, key)?.model;
+    const savedModel = savedById.get(id)?.model;
     if (savedModel) add(savedModel);
 
-    return { key, label: providerLabel(key), models: [...byId.values()] };
+    return { key: id, label: labelOf(id), preset, models: [...byId.values()] };
   });
 }

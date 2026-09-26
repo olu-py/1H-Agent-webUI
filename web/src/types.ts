@@ -55,6 +55,11 @@ export type ProviderModelsDto = JsonNumber<CoreProviderModelsDto>;
 
 /** Optional fields of the set-provider POST body (the settings-screen edit). */
 export interface ProviderSetOptions {
+  /** Existing provider id to edit (built-in preset key or `custom-<uuid>`).
+   * Omit it with a `custom` preset to create a new named custom provider. */
+  id?: string;
+  /** Display name for a custom provider; required when creating one. */
+  name?: string;
   /** Override the profile's base URL; empty/undefined keeps the current one. */
   baseUrl?: string;
   /** ProviderKind wire tag: "responses" | "chat_completions". */
@@ -62,6 +67,9 @@ export interface ProviderSetOptions {
   /** Optional explicit context window (tokens) for models the metadata chain
    * cannot resolve; the core clamps it to the configured bounds. */
   contextWindowTokens?: number;
+  /** Reserved selectable-model list (empty = unrestricted). Persisted and
+   * echoed by the core; not yet enforced when building requests. */
+  enabledModels?: string[];
   /** Write-only: stored in the OS keyring, never echoed back. */
   apiKey?: string;
 }
