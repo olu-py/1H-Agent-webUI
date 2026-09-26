@@ -32,7 +32,7 @@ else
 
   metadata="$(cargo metadata --locked --format-version 1 2>/dev/null || true)"
   core_manifest="$(printf '%s' "$metadata" \
-    | perl -ne 'if (/\{"name":"protium-core","version":.*?"source":"git\\+.*?"manifest_path":"([^"]+)"/) { print "$1\n"; exit }')"
+    | perl -ne 'if (/\{"name":"protium-core","version":.*?"source":"git\+.*?"manifest_path":"([^"]+)"/) { print "$1\n"; exit }')"
 
   if [[ -z "$core_manifest" ]]; then
     cargo_home="${CARGO_HOME:-$HOME/.cargo}"
