@@ -1,2 +1,4 @@
 web/index.html text eol=lf
 web/dist/** text eol=lf
+web/ts/** text eol=lf
+.githooks/** text eol=lf
