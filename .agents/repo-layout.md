@@ -29,19 +29,25 @@
 
 | 路径 | 产生者 | 清理方式 |
 | --- | --- | --- |
-| `target/` | cargo 构建/测试 | `cargo clean`（占盘大时先删 `target/debug`） |
+| `target/` | cargo 构建/测试 | 中间产物已不在此处，只剩最终产物；**禁止整目录 `cargo clean`**（见下节），单包清理用 `cargo clean -p <包名>` |
 | `.1h-agent-data/demo/` | `start-web.*` demo 模式：`data/`（会话库）、`workspace/`（演示工作区）、`server.pid/.url/.log/.err.log` | 实例停止后可整目录删除，下次启动自动重建 |
 | `.1h-agent-data/formal/` | `start-web.ps1 -Mode formal` 的 pid/url/log 句柄 | 数据本体在 `%LOCALAPPDATA%\1h-agent`；句柄目录可删 |
 | `.pnpm-store/` | pnpm 在**写入受限沙箱**内 install 时的回退 store（见下节） | 删除后在普通终端于 `web/` 重装即恢复共享 store |
 | `web/node_modules/` | `pnpm install` | 随时可删重装 |
 | `bindings/`（任意层级） | ts-rs 在未设 `TS_RS_EXPORT_DIR` 且本地 path-patch core 联调时的 `cargo test` 默认导出 | 可删；正式类型只经 `core-bindings.sh` 进 `web/ts/` |
-| `.cargo-targets-core/` | 本地联调 core 时重定向的 `CARGO_TARGET_DIR` | 可删 |
+| `.cargo-targets-core/` | 历史遗留：曾用 `CARGO_TARGET_DIR` 重定向的 core 联调产物（现行做法见下节） | 出现即删；联调改用 `--config` path patch，不再重定向 target |
 | `dist/`、`*.deb`、`*.msi`、`*.zip`、`*.tar.gz` | 本地打包（package 脚本输出在仓库外，此项防手滑） | 可删 |
 | `gui-test-screenshots/` | 人工 GUI 验证截图 | 可删 |
 | `.smoke-test-*/` | `smoke-web.sh` 被强杀时的残留 | 可删 |
 | `design/` | 仅存放任务期间产生、完成后归档或删除的临时维护计划与实施记录；git 忽略不上传，仅本地留存 | 不得存放长期有效的维护指南或 workflow；长期规则写入 `.agents/guides/` 并登记在根 `AGENTS.md` |
 | `config.toml`、`.env*`、`*.db*`、`*.log` | 密钥与运行态 | **绝不入库**；按需清理 |
 | `/.1h-agent/`、`/.agent-data/`、`/.runtime-data/`、`/.1h-agent-*.md` | 历史遗留名，现行脚本与 core 均不再产生 | 出现即删（.gitignore 保留防护防复发） |
+
+## cargo 中间产物共享缓存（机器级行为说明）
+
+- 本机 `$CARGO_HOME/config.toml`（`D:\Rust\cargo\config.toml`）设了 `[build] build-dir = "D:/workbase/.cargo-build-cache"`：中间产物写在那个共享目录，TUI/core/webUI 三个仓库共用同一份，`target/` 因此几乎只剩最终产物（本仓库实测只剩锁与标记文件）。
+- **禁止 `cargo clean`**：整目录 clean 会连共享缓存一起清空（实测 221 → 0 个文件），等于三个仓库一起冷启、全部重编。要回收空间就删共享目录本身；只想清一个包用 `cargo clean -p <包名>`。
+- **禁止为工具链、用途或联调另设 `CARGO_TARGET_DIR`**：同一目录内不同 rustc 版本与 SourceId 的产物各按指纹共存、互不驱逐，分目录只会重复编译。联调 core 用 `--config` 临时 path patch（见 [push-workflow](guides/push-workflow.md)）。
 
 ## pnpm store：每台机器的行为说明
 
@@ -67,7 +73,7 @@
 
 1. 巡检意外产物：`git status --ignored --short`，对照上表解释每一项。
 2. demo 状态陈旧（无运行实例且不再需要演示会话）：删 `.1h-agent-data/demo/`。
-3. `target/` 超过数 GB：`cargo clean` 或删 `target/debug` 后按需重建。
+3. 盘占用偏大：空间几乎都在机器级共享缓存 `D:\workbase\.cargo-build-cache`（三个仓库共用，见上节），确需回收就删该目录，**不要跑 `cargo clean`**。
 4. 共享 store 膨胀（长期）：普通终端 `pnpm store prune`。
 5. 文档改动：跑 `bash scripts/check-agent-docs.sh`（DSH 沙箱内 bash 不可用时按 `.agents/maintenance-env.md` 用 PowerShell 复刻断言）。
 6. 任何「不知道哪来的文件」：先查本表与 `.gitignore` 注释，确认无引用后删除；若会复发，在 `.gitignore` 增防护并在本文登记。
