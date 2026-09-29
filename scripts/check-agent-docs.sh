@@ -141,7 +141,7 @@ missing_in_ci="$(comm -13 <(printf '%s\n' "$ci_sorted") <(printf '%s\n' "$doc_na
 # --- 被 AGENTS.md 路由、但不属于"专题指南"的文档：同样纳入行数预算 --------------
 # 这类文档没有"适用范围/入口/不变量/诊断/验证"固定小节，进不了 guides 数组，但一样
 # 会悄悄膨胀。预算按当前行数设定：要加内容，先删同等量。
-flat_docs=(".agents/repo-layout.md:85" ".agents/maintenance-env.md:30")
+flat_docs=(".agents/repo-layout.md:85" ".agents/maintenance-env.md:30" ".agents/skills/git-pr-local-sync/SKILL.md:60")
 for entry in "${flat_docs[@]}"; do
     flat="${entry%:*}"
     limit="${entry##*:}"
