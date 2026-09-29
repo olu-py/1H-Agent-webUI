@@ -5,7 +5,7 @@ members = ["crates/1h-agent-web"]
 [workspace.package]
 version = "0.5.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "A lightweight, permission-aware multi-interface agent for Linux, macOS, and Windows"
 authors = ["olu"]
 license-file = "LICENSE"

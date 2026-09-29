@@ -616,10 +616,10 @@ async fn sse_handler(
         loop {
             match receiver.recv().await {
                 Ok(envelope) => {
-                    if let Some(f) = &filter {
-                        if &envelope.session_id != f {
-                            continue;
-                        }
+                    if let Some(f) = &filter
+                        && &envelope.session_id != f
+                    {
+                        continue;
                     }
                     yield to_sse(&envelope);
                 }
