@@ -1,10 +1,129 @@
 import { describe, expect, it } from "vitest";
-import { renderMarkdown } from "../src/lib/markdown";
+import {
+  createMarkdownModelCache,
+  createMarkdownStreamCache,
+  renderMarkdown,
+  renderMarkdownStreamUpdate,
+  updateMarkdownModel,
+} from "../src/lib/markdown";
+import { graphemeBoundary } from "../src/components/Markdown";
+
+describe("grapheme safe render chunks", () => {
+  it("keeps combining sequences and emoji ZWJ families intact", () => {
+    const combining = "e\u0301x";
+    expect(combining.slice(0, graphemeBoundary(combining, 0, 1))).toBe("e\u0301");
+
+    const family = "👨‍👩‍👧‍👦x";
+    const boundary = graphemeBoundary(family, 0, 3);
+    expect(family.slice(0, boundary)).toBe("👨‍👩‍👧‍👦");
+    expect(family.slice(boundary)).toBe("x");
+  });
+
+  it("uses the complete grapheme oracle beyond the former 64-unit lookahead", () => {
+    const combining = `e${"\u0301".repeat(96)}x`;
+    const boundary = graphemeBoundary(combining, 0, 1);
+    expect(boundary).toBe(combining.length - 1);
+    expect(combining.slice(0, boundary)).toBe(`e${"\u0301".repeat(96)}`);
+
+    const family = `${Array.from({ length: 12 }, (_, index) => index ? "‍👩" : "👨").join("")}x`;
+    const familyBoundary = graphemeBoundary(family, 0, 2);
+    expect(family.slice(familyBoundary)).toBe("x");
+  });
+
+  it("holds a grapheme split across deltas as one cluster before chunking", () => {
+    const first = `prefix ${"👩‍".repeat(20)}`;
+    const completed = `${first}👩 suffix`;
+    const boundary = graphemeBoundary(completed, 0, 16);
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    const legal = new Set([0, ...[...segmenter.segment(completed)].map((part) => part.index + part.segment.length)]);
+    expect(legal.has(boundary)).toBe(true);
+  });
+
+  it("never returns an interior UTF-16 offset for varied grapheme boundaries", () => {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    const pieces = ["A", "e\u0301", "각", "👍🏽", "🇭🇰", "👩‍❤️‍💋‍👨", "1️⃣", "🏴\u{E0067}\u{E0062}\u{E007F}"];
+    const source = pieces.join("-").repeat(8);
+    const boundaries = [...segmenter.segment(source)].map((part) => part.index);
+    boundaries.push(source.length);
+    const legal = new Set(boundaries);
+    for (const start of boundaries.slice(0, -1)) {
+      for (const maxChars of [1, 2, 3, 4, 7, 16, 31]) {
+        const result = graphemeBoundary(source, start, maxChars);
+        expect(legal.has(result), `offset ${result} splits a cluster after ${start} with limit ${maxChars}`).toBe(true);
+        expect(result).toBeGreaterThan(start);
+      }
+    }
+  });
+});
 
 /** The renderer joins block tags with newlines; strip them for assertions. */
 function norm(html: string): string {
   return html.replace(/\n/g, "");
 }
+
+describe("source-addressable markdown model", () => {
+  it("shares the legacy renderer semantics and tracks raw UTF-16 ranges", () => {
+    const source = [
+      "# Heading 🧪",
+      "",
+      "A paragraph with **bold** and e\u0301.",
+      "",
+      "> quoted line",
+      "> second line",
+      "",
+      "| name | value |",
+      "| --- | ---: |",
+      "| alpha | 10 |",
+      "| beta | 20 |",
+      "",
+      "```ts",
+      "const family = '👨‍👩‍👧‍👦';",
+      "console.log(family);",
+      "```",
+    ].join("\r\n");
+    const document = updateMarkdownModel(createMarkdownModelCache(), source);
+    expect(document.html).toBe(renderMarkdown(source));
+    expect(document.source).toBe(source);
+    for (const block of document.blocks) {
+      expect(block.source).toBe(source.slice(block.sourceStart, block.sourceEnd));
+      expect(block.sourceStart).toBeGreaterThanOrEqual(0);
+      expect(block.sourceEnd).toBeLessThanOrEqual(source.length);
+    }
+    const table = document.blocks.find((block) => block.kind === "table");
+    expect(table?.children.map((row) => source.slice(row.sourceStart, row.sourceEnd))).toEqual([
+      "| name | value |", "| --- | ---: |", "| alpha | 10 |", "| beta | 20 |",
+    ]);
+    const code = document.blocks.find((block) => block.kind === "code");
+    expect(code?.children.map((line) => source.slice(line.sourceStart, line.sourceEnd))).toEqual([
+      "const family = '👨‍👩‍👧‍👦';", "console.log(family);",
+    ]);
+  });
+
+  it("preserves completed block IDs and revises a changing tail in place", () => {
+    const cache = createMarkdownModelCache();
+    const first = updateMarkdownModel(cache, "completed block\n\nmutable");
+    const completedId = first.blocks[0].id;
+    const tailId = first.blocks[1].id;
+    const tailRevision = first.blocks[1].revision;
+    const extended = updateMarkdownModel(cache, "completed block\n\nmutable tail");
+    expect(extended.blocks[0].id).toBe(completedId);
+    expect(extended.blocks[1].id).toBe(tailId);
+    expect(extended.blocks[1].revision).toBe(tailRevision + 1);
+    const appended = updateMarkdownModel(cache, "completed block\n\nmutable tail\n\nnext");
+    expect(appended.blocks[0].id).toBe(completedId);
+    expect(appended.blocks[1].id).toBe(tailId);
+    expect(appended.blocks[1].revision).toBe(extended.blocks[1].revision);
+    expect(appended.blocks[2].id).not.toBe(tailId);
+  });
+
+  it("keeps non-1 ordered markers inside an interrupted paragraph", () => {
+    const source = "A sentence before the marker.\n2024. continues the same paragraph";
+    const document = updateMarkdownModel(createMarkdownModelCache(), source);
+    expect(document.blocks).toHaveLength(1);
+    expect(document.blocks[0].kind).toBe("paragraph");
+    expect(document.html).toBe(renderMarkdown(source));
+  });
+});
 
 describe("tables", () => {
   it("renders a basic GFM table", () => {
@@ -82,6 +201,311 @@ describe("tables", () => {
     expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
     expect(html).not.toContain("<script");
     expect(html).not.toContain("<img");
+  });
+});
+
+describe("incremental stream renderer", () => {
+  it("streams closed inline formatting without reparsing committed words", () => {
+    const cache = createMarkdownStreamCache();
+    const deltas = [
+      "**text** 中文 benchmark. ".repeat(6),
+      "**text** 中文 benchmark. ".repeat(6),
+      "**text** 中文 bench",
+      "mark. **tail** done ",
+    ];
+    let source = "";
+    let committed = "";
+    let live = "";
+    let sawAppend = false;
+    for (let index = 0; index < deltas.length; index += 1) {
+      source += deltas[index];
+      const update = renderMarkdownStreamUpdate(cache, source, 18, true, {
+        id: "inline", revision: index + 1, delta: deltas[index],
+      });
+      if (update.inlineStart) {
+        committed = update.inlineStart.committedHtml;
+        live = update.inlineStart.liveHtml;
+      } else if (update.inlineAppend) {
+        sawAppend = true;
+        committed += update.inlineAppend.committedHtml;
+        live = update.inlineAppend.liveHtml;
+      } else {
+        committed = "";
+        live = update.tailHtml.slice(3, -4);
+      }
+      expect(`<p>${committed}${live}</p>`, `delta ${index}`).toBe(renderMarkdown(source, 0, 18));
+    }
+    expect(sawAppend).toBe(true);
+    const final = renderMarkdownStreamUpdate(cache, source, 0, true, {
+      id: "inline", revision: deltas.length, delta: deltas[deltas.length - 1],
+    });
+    expect(final.tailHtml).toBe(renderMarkdown(source));
+  });
+
+  it("falls back cleanly when a formatted paragraph gains a link or newline", () => {
+    const cache = createMarkdownStreamCache();
+    const deltas = [
+      "**one** ~~two words~~ `three four` **five** tail ",
+      "**six** more ",
+      "https",
+      "://example.test\nnext line",
+    ];
+    let source = "";
+    let committed = "";
+    let live = "";
+    for (let index = 0; index < deltas.length; index += 1) {
+      source += deltas[index];
+      const update = renderMarkdownStreamUpdate(cache, source, 18, true, {
+        id: "mixed-inline", revision: index + 1, delta: deltas[index],
+      });
+      if (update.inlineStart) {
+        committed = update.inlineStart.committedHtml;
+        live = update.inlineStart.liveHtml;
+      } else if (update.inlineAppend) {
+        committed += update.inlineAppend.committedHtml;
+        live = update.inlineAppend.liveHtml;
+      } else {
+        committed = "";
+        live = update.tailHtml.slice(3, -4);
+      }
+      const actual = update.inlineStart || update.inlineAppend
+        ? `<p>${committed}${live}</p>`
+        : update.tailHtml;
+      expect(actual, `delta ${index}`).toBe(renderMarkdown(source, 0, 18));
+    }
+  });
+
+  it("keeps malformed chunk-boundary emphasis exact across repeated SSE payloads", () => {
+    const cache = createMarkdownStreamCache();
+    const payload = "**text** 中文 benchmark. ".repeat(12).slice(0, 256);
+    let source = "";
+    let committed = "";
+    let live = "";
+    let fastUpdates = 0;
+    for (let index = 0; index < 32; index += 1) {
+      source += payload;
+      const update = renderMarkdownStreamUpdate(cache, source, 18, true, {
+        id: "sse-pattern", revision: index + 1, delta: payload,
+      });
+      if (update.inlineStart) {
+        committed = update.inlineStart.committedHtml;
+        live = update.inlineStart.liveHtml;
+      } else if (update.inlineAppend) {
+        fastUpdates += 1;
+        committed += update.inlineAppend.committedHtml;
+        live = update.inlineAppend.liveHtml;
+      } else {
+        committed = "";
+        live = update.tailHtml.slice(3, -4);
+      }
+      expect(`<p>${committed}${live}</p>`, `chunk ${index}`).toBe(renderMarkdown(source, 0, 18));
+    }
+    expect(fastUpdates).toBeGreaterThan(25);
+  });
+
+  it("patches only the last table row and matches the full parser through partial rows", () => {
+    const cache = createMarkdownStreamCache();
+    const deltas = [
+      "| a\\|b | c |\n| :--- | ---: |\n| x | **y** |\n",
+      "| 1 | [li",
+      "nk](https://example.test) |\n| 2 | <script> |\n",
+      "| 3 | next |",
+      "\n\nend",
+    ];
+    let source = "";
+    let stable = "";
+    let tail = "";
+    let patched = 0;
+    for (let index = 0; index < deltas.length; index += 1) {
+      source += deltas[index];
+      const update = renderMarkdownStreamUpdate(cache, source, 18, true, {
+        id: "table", revision: index + 1, delta: deltas[index],
+      });
+      stable += update.stableHtml;
+      if (update.tableAppend) {
+        patched += 1;
+        const tbodyEnd = tail.indexOf("</tbody>");
+        const lastRow = tail.lastIndexOf("<tr>", tbodyEnd);
+        expect(lastRow).toBeGreaterThan(0);
+        tail = tail.slice(0, lastRow) + update.tableAppend.rowsHtml + tail.slice(tbodyEnd);
+      } else {
+        tail = update.tailHtml;
+      }
+      expect(stable + tail, `delta ${index}`).toBe(renderMarkdown(source, 0, 18));
+    }
+    expect(patched).toBeGreaterThan(1);
+    const final = renderMarkdownStreamUpdate(cache, source, 0, true, {
+      id: "table", revision: deltas.length, delta: deltas[deltas.length - 1],
+    });
+    expect(stable + final.tailHtml).toBe(renderMarkdown(source));
+  });
+
+  it("matches the complete parser while blocks become stable", () => {
+    const samples = [
+      "plain **paragraph**\n\n# heading\n\nnext line",
+      "- first\n  continuation\n\n- second\n\nparagraph",
+      "| a | b |\n| --- | --- |\n| 1 | 2 |\n\nend",
+      "> quoted\n> **bold**\n\nend",
+      "```ts\nconst x = '<script>';\n```\n\nafter",
+      "```ts\nopen code\n\nstill code\n```\n\nfinished",
+      "中文 e\u0301 👩‍💻 and [link](https://example.test)\n\n尾部",
+      "paragraph\n\n1. ordered item\n\nend",
+    ];
+
+    for (const sample of samples) {
+      const cache = createMarkdownStreamCache();
+      let stable = "";
+      let source = "";
+      for (const scalar of sample) {
+        source += scalar;
+        const update = renderMarkdownStreamUpdate(cache, source);
+        stable += update.stableHtml;
+        const actual = stable + update.tailHtml;
+        expect(actual, source).toBe(renderMarkdown(source));
+      }
+      expect(stable + renderMarkdownStreamUpdate(cache, source).tailHtml, sample)
+        .toBe(renderMarkdown(sample));
+    }
+  });
+
+  it("resets committed blocks when history is replaced or edited", () => {
+    const cache = createMarkdownStreamCache();
+    const first = renderMarkdownStreamUpdate(cache, "one\n\ntwo");
+    expect(first.stableHtml).toBe("<p>one</p>");
+    const replacement = renderMarkdownStreamUpdate(cache, "replacement");
+    expect(replacement.reset).toBe(true);
+    expect(replacement.tailHtml).toBe(renderMarkdown("replacement"));
+  });
+
+  it("rejects a longer non-prefix replacement on the append-only path", () => {
+    const cache = createMarkdownStreamCache();
+    renderMarkdownStreamUpdate(cache, "one\n\ntwo", 0, true);
+    const replacement = renderMarkdownStreamUpdate(cache, "replacement is longer", 0, true);
+    expect(replacement.reset).toBe(true);
+    expect(replacement.stableHtml).toBe("");
+    expect(replacement.tailHtml).toBe(renderMarkdown("replacement is longer"));
+  });
+
+  it("uses the reducer's contiguous stream delta without rechecking the full prefix", () => {
+    const cache = createMarkdownStreamCache();
+    let text = "";
+    let stable = "";
+    const deltas = ["first\n\n", "second", " tail"];
+    for (let index = 0; index < deltas.length; index += 1) {
+      const delta = deltas[index];
+      text += delta;
+      const update = renderMarkdownStreamUpdate(cache, text, 0, true, {
+        id: "syn-1",
+        revision: index + 1,
+        delta,
+      });
+      stable += update.stableHtml;
+      expect(stable + update.tailHtml).toBe(renderMarkdown(text));
+    }
+  });
+
+  it("normalizes CRLF split between trusted stream deltas exactly once", () => {
+    const cache = createMarkdownStreamCache();
+    const deltas = ["line one\r", "\n\r", "\nline two"];
+    let source = "";
+    let stable = "";
+    for (let index = 0; index < deltas.length; index += 1) {
+      const delta = deltas[index];
+      source += delta;
+      const update = renderMarkdownStreamUpdate(cache, source, 0, true, {
+        id: "syn-crlf",
+        revision: index + 1,
+        delta,
+      });
+      stable += update.stableHtml;
+      expect(stable + update.tailHtml, JSON.stringify(source)).toBe(renderMarkdown(source));
+    }
+  });
+
+  it("streams unclosed fenced code as escaped text and commits the exact final block", () => {
+    const cache = createMarkdownStreamCache();
+    const deltas = ["```text\n", "const x = '<script>';\n", "line two\n", "```\n\n"];
+    let source = "";
+    let stable = "";
+    for (let index = 0; index < deltas.length; index += 1) {
+      const delta = deltas[index];
+      source += delta;
+      const update = renderMarkdownStreamUpdate(cache, source, 0, true, {
+        id: "syn-code",
+        revision: index + 1,
+        delta,
+      });
+      stable += update.stableHtml;
+      if (update.fenceAppend !== undefined) {
+        expect(update.tailHtml).toBe("");
+        expect(renderMarkdown(cache.tailSource)).toBe(renderMarkdown(source));
+      } else {
+        expect(stable + update.tailHtml).toBe(renderMarkdown(source));
+      }
+    }
+    expect(stable + renderMarkdownStreamUpdate(cache, source).tailHtml).toBe(renderMarkdown(source));
+    expect(stable).not.toContain("<script>");
+  });
+
+  it("appends plain no-break text while keeping the full committed text selectable", () => {
+    const cache = createMarkdownStreamCache();
+    const deltas = ["plain words ".repeat(40), "中文 e\u0301 👩‍💻 ".repeat(24), "ending"];
+    let source = "";
+    let committed = "";
+    for (let index = 0; index < deltas.length; index += 1) {
+      const delta = deltas[index];
+      source += delta;
+      const update = renderMarkdownStreamUpdate(cache, source, 18, true, {
+        id: "syn-plain",
+        revision: index + 1,
+        delta,
+      });
+      if (update.plainStart) committed += update.plainStart.committedText;
+      else if (update.plainAppend) committed += update.plainAppend.committedText;
+      else throw new Error("expected the bounded plain streaming path");
+      expect(committed + cache.plainPending).toBe(source);
+    }
+    const replay = renderMarkdownStreamUpdate(cache, source, 18, true, {
+      id: "syn-plain",
+      revision: deltas.length,
+      delta: deltas[deltas.length - 1],
+    });
+    expect(replay.reset).toBe(false);
+    expect(replay.plainAppend?.committedText).toBe("");
+    const final = renderMarkdownStreamUpdate(cache, source, 0, true, {
+      id: "syn-plain",
+      revision: deltas.length,
+      delta: deltas[deltas.length - 1],
+    });
+    expect(final.reset).toBe(true);
+    expect(final.tailHtml).toBe(renderMarkdown(source));
+  });
+
+  it("falls back to the complete parser when a plain stream becomes a link", () => {
+    const cache = createMarkdownStreamCache();
+    const first = renderMarkdownStreamUpdate(cache, "visit https", 18, true, {
+      id: "syn-url", revision: 1, delta: "visit https",
+    });
+    expect(first.plainStart).toBeDefined();
+    const source = "visit https://example.test";
+    const update = renderMarkdownStreamUpdate(cache, source, 18, true, {
+      id: "syn-url", revision: 2, delta: "://example.test",
+    });
+    expect(update.reset).toBe(true);
+    expect(update.tailHtml).toBe(renderMarkdown(source, 0, 18));
+  });
+
+  it("normalizes CRLF split across append-only deltas", () => {
+    const cache = createMarkdownStreamCache();
+    const sample = "first\r\n\r\nsecond";
+    let source = "";
+    let stable = "";
+    for (const scalar of sample) {
+      source += scalar;
+      const update = renderMarkdownStreamUpdate(cache, source, 0, true);
+      stable += update.stableHtml;
+      expect(stable + update.tailHtml, source).toBe(renderMarkdown(source));
+    }
   });
 });
 

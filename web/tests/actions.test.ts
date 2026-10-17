@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AppSnapshotV2, MessagePage } from "../src/types";
+import type { AppSnapshotV2, Envelope, MessagePage } from "../src/types";
 import { createActions } from "../src/actions";
 import { createStore } from "../src/state/store";
 
@@ -50,6 +50,105 @@ function snap(mode: string, activeSession: string | null = null): AppSnapshotV2 
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("transcript refresh lifetime", () => {
+  it("reestablishes the subscription after authoritative resync", async () => {
+    const callbacks: Array<(event: Envelope) => void> = [];
+    const unsubscribe = vi.fn();
+    const transport = fakeTransport({ snapshot: vi.fn().mockResolvedValue(snap("build", "A")),
+      messages: vi.fn().mockResolvedValue({messages:[],next_before:null,has_more:false}),
+      subscribe: vi.fn((_cursor, callback) => { callbacks.push(callback); return {unsubscribe}; }) });
+    const store = createStore();
+    const actions = createActions(transport,store);
+    await actions.init();
+    callbacks[0]({cursor:20,session_id:"",type:"resync_required"});
+    await vi.waitFor(() => expect(callbacks).toHaveLength(2));
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    callbacks[0]({cursor:21,session_id:"A",type:"text_delta",delta:"STALE"});
+    expect(store.getState().messages).toEqual([]);
+    actions.stop();
+  });
+  it("rejects a late prepend after A to B to A", async () => {
+    let release!: (page: MessagePage) => void;
+    const transport = fakeTransport({ messages: vi.fn(() => new Promise<MessagePage>(resolve => { release = resolve; })) });
+    const store = createStore();
+    const actions = createActions(transport, store);
+    store.dispatch({type:"snapshot", snapshot:snap("build", "A")});
+    store.dispatch({type:"messages", replace:true, page:{messages:[], next_before:30n, has_more:true}});
+    const pending = actions.loadOlder();
+    store.dispatch({type:"snapshot", snapshot:snap("build", "B")});
+    store.dispatch({type:"snapshot", snapshot:snap("build", "A")});
+    release({messages:[{id:1,kind:"user",content:"STALE A"}], next_before:null, has_more:false});
+    await pending;
+    expect(store.getState().messages).toEqual([]);
+    expect(store.getState().lastError).toBeNull();
+  });
+  it("rejects a late prepend from a stopped lifetime after init", async () => {
+    let release!: (page: MessagePage) => void;
+    const transport = fakeTransport({ messages: vi.fn()
+      .mockImplementationOnce(() => new Promise<MessagePage>(resolve => { release = resolve; }))
+      .mockResolvedValue({messages:[], next_before:null, has_more:false}),
+      snapshot: vi.fn().mockResolvedValue(snap("build", "A")) });
+    const store = createStore();
+    const actions = createActions(transport, store);
+    store.dispatch({type:"snapshot", snapshot:snap("build", "A")});
+    store.dispatch({type:"messages", replace:true, page:{messages:[], next_before:30n, has_more:true}});
+    const pending = actions.loadOlder();
+    actions.stop();
+    await actions.init();
+    release({messages:[{id:1,kind:"user",content:"STALE LIFETIME"}], next_before:null, has_more:false});
+    await pending;
+    expect(store.getState().messages).toEqual([]);
+    actions.stop();
+  });
+  it("aborts prepend on session switch and rejects a late old page", async () => {
+    let release!: (page: MessagePage) => void;
+    const transport = fakeTransport({ messages: vi.fn(() => new Promise<MessagePage>(resolve => { release = resolve; })) });
+    const store = createStore();
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "old") });
+    store.dispatch({ type: "messages", replace: true, page: { messages: [], next_before: 30n, has_more: true } });
+    const actions = createActions(transport, store);
+    const pending = actions.loadOlder();
+    const signal = vi.mocked(transport.messages).mock.calls[0][1]?.signal;
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "new") });
+    expect(signal?.aborted).toBe(true);
+    release({ messages: [{ id: 1, kind: "user", content: "OLD PREPEND" }], next_before: null, has_more: false });
+    await pending;
+    expect(store.getState().messages).toEqual([]);
+    actions.stop();
+  });
+  it("stopping actions aborts an actual pending history request", async () => {
+    let release!: (page: MessagePage) => void;
+    const transport = fakeTransport({ messages: vi.fn(() => new Promise<MessagePage>(resolve => { release = resolve; })) });
+    const store = createStore();
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "s1") });
+    store.dispatch({ type: "messages", replace: true, page: { messages: [], next_before: 30n, has_more: true } });
+    const actions = createActions(transport, store);
+    const pending = actions.loadOlder();
+    actions.stop();
+    expect(vi.mocked(transport.messages).mock.calls[0][1]?.signal?.aborted).toBe(true);
+    release({ messages: [{ id: 1, kind: "user", content: "LATE" }], next_before: null, has_more: false });
+    await pending;
+    expect(store.getState().messages).toEqual([]);
+  });
+  it("discards an old session response delivered after the new session", async () => {
+    let release!: (page: MessagePage) => void;
+    const transport = fakeTransport({ messages: vi.fn()
+      .mockImplementationOnce(() => new Promise<MessagePage>(resolve => { release = resolve; }))
+      .mockResolvedValue({ messages: [], next_before: null, has_more: false }) });
+    const store = createStore();
+    const actions = createActions(transport, store);
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "old") });
+    const old = actions.refreshTranscript();
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "new") });
+    await actions.refreshTranscript();
+    release({ messages: [{ id: 99, kind: "user", content: "OLD_SESSION" }], next_before: null, has_more: false });
+    await old;
+    expect(store.getState().messages).toEqual([]);
+    const options = vi.mocked(transport.messages).mock.calls[0][1];
+    expect(options?.signal?.aborted).toBe(true);
+  });
 });
 
 describe("actions.submit with a pending mode", () => {
@@ -345,6 +444,43 @@ describe("actions.forkSession / deleteSession", () => {
   });
 });
 
+describe("actions event refreshes during SSE resync", () => {
+  it("does not lose a second transcript invalidation while an earlier page fetch is pending", async () => {
+    let onEvent: ((envelope: Envelope) => void) | undefined;
+    const subscribe = vi.fn((_cursor: number, callback: (envelope: Envelope) => void) => {
+      onEvent = callback;
+      return { unsubscribe: vi.fn() };
+    });
+    let resolveStale!: (page: MessagePage) => void;
+    const staleFetch = new Promise<MessagePage>((resolve) => { resolveStale = resolve; });
+    const makePage = (content: string, id: bigint): MessagePage => ({
+      messages: [{ kind: "assistant", id, content, created_at: "2026-01-01T00:00:00Z" }],
+      next_before: null,
+      has_more: false,
+    });
+    const transport = fakeTransport({ subscribe });
+    (transport.snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(snap("build", "s1"));
+    (transport.messages as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(makePage("initial", 1n))
+      .mockReturnValueOnce(staleFetch)
+      .mockResolvedValueOnce(makePage("final transcript", 3n));
+    const store = createStore();
+    const actions = createActions(transport, store);
+    await actions.init();
+    expect(transport.subscribe).toHaveBeenCalledTimes(1);
+    expect(onEvent).toBeTypeOf("function");
+
+    onEvent?.({ cursor: 11n, session_id: "s1", type: "transcript_invalidated" });
+    expect(store.getState().transcriptDirty).toBe(true);
+    await vi.waitFor(() => expect(transport.messages).toHaveBeenCalledTimes(2));
+    onEvent?.({ cursor: 12n, session_id: "s1", type: "completed" });
+    resolveStale(makePage("stale page", 2n));
+
+    await vi.waitFor(() => expect(transport.messages).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(store.getState().messages[0]?.content).toBe("final transcript"));
+  });
+});
+
 describe("actions.refreshTranscript after a session is deleted", () => {
   it("clears the transcript instead of surfacing a 404 'unknown session'", async () => {
     const transport = fakeTransport();
@@ -359,7 +495,7 @@ describe("actions.refreshTranscript after a session is deleted", () => {
 
     await actions.refreshTranscript();
 
-    expect(transport.messages).toHaveBeenCalledWith("s1", { limit: expect.any(Number) });
+    expect(transport.messages).toHaveBeenCalledWith("s1", { limit: expect.any(Number), signal: expect.any(AbortSignal) });
     expect(store.getState().messages).toHaveLength(0);
     expect(store.getState().lastError).toBeNull();
   });
@@ -372,5 +508,68 @@ describe("actions.refreshTranscript after a session is deleted", () => {
     const actions = createActions(transport, store);
 
     await expect(actions.refreshTranscript()).rejects.toThrow("boom");
+  });
+});
+
+describe("complete transcript search and offscreen message navigation", () => {
+  const page = (id: bigint, content: string, next: bigint | null, more: boolean): MessagePage => ({
+    messages: [{ kind: "assistant", id, content, created_at: "2026-01-01T00:00:00Z" }],
+    next_before: next,
+    has_more: more,
+  });
+
+  it("searches every page and stops at the authoritative cursor", async () => {
+    const transport = fakeTransport();
+    (transport.messages as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(page(200n, "newer", 200n, true))
+      .mockResolvedValueOnce(page(100n, "needle in the old page", null, false));
+    const store = createStore();
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "s1") });
+    const actions = createActions(transport, store);
+
+    const result = await actions.searchTranscript("NEEDLE");
+
+    expect(result.scanned).toBe(2);
+    expect(result.results.map((hit) => hit.message.id)).toEqual([100]);
+    expect(result.results[0]?.excerpt).toContain("needle");
+    expect(transport.messages).toHaveBeenNthCalledWith(1, "s1", { before: null, limit: 100, signal: expect.any(AbortSignal) });
+    expect(transport.messages).toHaveBeenNthCalledWith(2, "s1", { before: 200n, limit: 100, signal: expect.any(AbortSignal) });
+  });
+
+  it("stops issuing page requests after the search is cancelled", async () => {
+    const transport = fakeTransport();
+    (transport.messages as ReturnType<typeof vi.fn>).mockResolvedValue(page(200n, "newer", 200n, true));
+    const store = createStore();
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "s1") });
+    const actions = createActions(transport, store);
+    const controller = new AbortController();
+
+    const result = await actions.searchTranscript("miss", {
+      signal: controller.signal,
+      onProgress: () => controller.abort(),
+    });
+
+    expect(result.scanned).toBe(1);
+    expect(transport.messages).toHaveBeenCalledTimes(1);
+    expect(transport.messages).toHaveBeenCalledWith("s1", {
+      before: null,
+      limit: 100,
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("replaces the transcript with the page containing an offscreen hit", async () => {
+    const transport = fakeTransport();
+    (transport.messages as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(page(200n, "newer", 200n, true))
+      .mockResolvedValueOnce(page(100n, "target", null, false));
+    const store = createStore();
+    store.dispatch({ type: "snapshot", snapshot: snap("build", "s1") });
+    const actions = createActions(transport, store);
+
+    await expect(actions.locateMessage(100)).resolves.toBe(true);
+
+    expect(store.getState().messages.map((message) => message.id)).toEqual([100]);
+    expect(transport.messages).toHaveBeenNthCalledWith(2, "s1", { before: 200n, limit: 100, signal: expect.any(AbortSignal) });
   });
 });

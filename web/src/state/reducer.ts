@@ -141,6 +141,23 @@ export function reduce(state: UiState, action: Action): UiState {
 
     case "messages": {
       const fresh = action.page.messages.map(toViewMessage);
+      if (action.replace && fresh.length) {
+        const previousKeys = new Map(state.messages
+          .filter((message) => message.id > 0)
+          .map((message) => [message.id, message.key]));
+        for (let index = 0; index < fresh.length; index += 1) {
+          const previousKey = previousKeys.get(fresh[index].id);
+          if (previousKey) fresh[index] = { ...fresh[index], key: previousKey };
+        }
+        const oldTail = state.messages[state.messages.length - 1];
+        const newTail = fresh[fresh.length - 1];
+        const newestKnownId = Math.max(0, ...state.messages.map((message) => message.id));
+        if (oldTail?.key.startsWith("syn-") && oldTail.kind === "assistant" &&
+          newTail.kind === "assistant" && newTail.id > newestKnownId &&
+          oldTail.content + (oldTail.streamingText ?? "") === newTail.content) {
+          fresh[fresh.length - 1] = { ...newTail, key: oldTail.key };
+        }
+      }
       const messages = action.replace
         ? evict(fresh)
         : evict([...fresh, ...state.messages], "newest");
@@ -216,6 +233,7 @@ export function reduce(state: UiState, action: Action): UiState {
       const local = (fn: (s: UiState) => UiState, bg: string): UiState => {
         if (isActive) return fn(base);
         if (!bg) return base;
+        if (state.backgroundStatus[envelope.session_id] === bg) return base;
         return {
           ...base,
           backgroundStatus: {
@@ -491,12 +509,18 @@ export function reduce(state: UiState, action: Action): UiState {
             typeof event.tool === "string" ? event.tool : null,
           );
           const sessionLabel = machineStatus === "running" ? `子会话：${label}` : label;
-          const withChild = (s: UiState): UiState =>
-            childSession ? {
-              ...s,
-              childStatus: { ...s.childStatus, [childSession]: machineStatus },
-              backgroundStatus: { ...s.backgroundStatus, [childSession]: label },
-            } : s;
+          const withChild = (s: UiState): UiState => {
+            if (!childSession) return s;
+            const childStatus = s.childStatus[childSession] === machineStatus
+              ? s.childStatus
+              : { ...s.childStatus, [childSession]: machineStatus };
+            const backgroundStatus = s.backgroundStatus[childSession] === label
+              ? s.backgroundStatus
+              : { ...s.backgroundStatus, [childSession]: label };
+            return childStatus === s.childStatus && backgroundStatus === s.backgroundStatus
+              ? s
+              : { ...s, childStatus, backgroundStatus };
+          };
           // Always record the child's live progress for the tree, even when
           // the owning parent is a background session.
           return withChild(local((s) => ({ ...s, status: sessionLabel }), sessionLabel));

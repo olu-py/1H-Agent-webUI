@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatActions } from "../hooks";
+import { useUiSelector } from "../hooks";
 import type { UiState } from "../state/reducer";
+import type { Store } from "../state/store";
 import type { ProviderModelDto } from "../types";
 import {
   BUILTIN_PROVIDERS,
@@ -39,6 +41,13 @@ function modelTitle(model: ProviderModelDto): string {
   return parts.join(" · ");
 }
 
+const selectProviderSettings = (state: UiState) => state.providerSettings;
+const selectProviderModels = (state: UiState) => state.providerModels;
+const selectProvider = (state: UiState) => state.provider;
+const selectProviderId = (state: UiState) => state.providerId;
+const selectModel = (state: UiState) => state.model;
+const selectLastError = (state: UiState) => state.lastError;
+
 /**
  * Provider settings dialog, rendered at the app level (like the approval
  * modal) so every entry point can open it: the composer's switcher trigger
@@ -52,16 +61,21 @@ function modelTitle(model: ProviderModelDto): string {
  * the OS keyring by the core and never echoed back), so the dialog can only
  * show whether one is currently resolved.
  */
-export function ProviderSettingsModal({
-  state,
+export const ProviderSettingsModal = memo(function ProviderSettingsModal({
+  store,
   actions,
   onClose,
 }: {
-  state: UiState;
+  store: Store;
   actions: ChatActions;
   onClose: () => void;
 }) {
-  const settings = state.providerSettings;
+  const settings = useUiSelector(store, selectProviderSettings);
+  const providerModels = useUiSelector(store, selectProviderModels);
+  const provider = useUiSelector(store, selectProvider);
+  const currentProviderId = useUiSelector(store, selectProviderId);
+  const currentModel = useUiSelector(store, selectModel);
+  const lastError = useUiSelector(store, selectLastError);
   const saved = settings?.saved ?? [];
   const connected = settings?.connected ?? [];
 
@@ -89,14 +103,14 @@ export function ProviderSettingsModal({
   // `providerId === ""` means "creating a new custom provider"; an existing
   // id selects that profile. The initial selection is the active provider.
   const [providerId, setProviderId] = useState(
-    () => settings?.active.id ?? state.providerId ?? "",
+    () => settings?.active.id ?? currentProviderId ?? "",
   );
   const [name, setName] = useState(() => settings?.active.name ?? "");
   const [preset, setPreset] = useState(() =>
-    providerKey(settings?.active.preset ?? state.provider),
+    providerKey(settings?.active.preset ?? provider),
   );
   const [creating, setCreating] = useState(false);
-  const [selectedModel, setSelectedModel] = useState(settings?.active.model ?? state.model);
+  const [selectedModel, setSelectedModel] = useState(settings?.active.model ?? currentModel);
   const [baseUrl, setBaseUrl] = useState(settings?.active.base_url ?? "");
   const [kind, setKind] = useState(settings?.active.kind ?? "responses");
   const [apiKey, setApiKey] = useState("");
@@ -260,7 +274,7 @@ export function ProviderSettingsModal({
     settings != null &&
     settings.active.id === providerId &&
     settings.active.base_url === baseUrl.trim();
-  const fetchedModels = fetchedApplies ? (state.providerModels?.models ?? []) : [];
+  const fetchedModels = fetchedApplies ? (providerModels?.models ?? []) : [];
   const staticModels = modelsForProvider(preset).filter(
     (id) => !fetchedModels.some((m) => m.id === id),
   );
@@ -511,7 +525,7 @@ export function ProviderSettingsModal({
             </p>
           </section>
         </div>
-        {state.lastError ? <p className="provider-form-error">{state.lastError}</p> : null}
+        {lastError ? <p className="provider-form-error">{lastError}</p> : null}
         <div className="provider-modal-actions">
           {!creating && providerId ? (
             <button
@@ -541,4 +555,4 @@ export function ProviderSettingsModal({
       </div>
     </div>
   );
-}
+});

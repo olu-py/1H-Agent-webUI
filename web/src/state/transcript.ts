@@ -29,6 +29,12 @@ export interface ViewMessage {
   createdAt: string;
   /** In-flight streamed text not yet persisted by the server. */
   streamingText?: string;
+  /** Monotonic text delta sequence for the active synthetic stream row. */
+  streamRevision?: number;
+  /** Latest reducer delta; paired with `streamRevision` for incremental render validation. */
+  streamingDelta?: string;
+  /** Revision immediately before the currently coalesced visible delta. */
+  streamingDeltaFromRevision?: number;
   /** In-flight streamed reasoning. */
   streamingThinking?: string;
   /** True for the synthetic "未完成" message restored from `assistant_partial`. */
@@ -148,6 +154,9 @@ export function appendStream(state: UiState, which: "text" | "thinking", delta: 
     const next = {
       ...current,
       streamingText: which === "text" ? (current.streamingText ?? "") + delta : current.streamingText,
+      streamRevision: which === "text" ? (current.streamRevision ?? 0) + 1 : current.streamRevision,
+      streamingDelta: which === "text" ? delta : current.streamingDelta,
+      streamingDeltaFromRevision: which === "text" ? (current.streamRevision ?? 0) : current.streamingDeltaFromRevision,
       streamingThinking: which === "thinking" ? (current.streamingThinking ?? "") + delta : current.streamingThinking,
     };
     return { ...replaceAt(state, index, next), busy: true };
@@ -161,6 +170,9 @@ export function appendStream(state: UiState, which: "text" | "thinking", delta: 
     content: "",
     createdAt: new Date(0).toISOString(),
     streamingText: which === "text" ? delta : undefined,
+    streamRevision: which === "text" ? 1 : undefined,
+    streamingDelta: which === "text" ? delta : undefined,
+    streamingDeltaFromRevision: which === "text" ? 0 : undefined,
     streamingThinking: which === "thinking" ? delta : undefined,
   };
   return { ...state, synthSeq, messages: evict([...state.messages, created]), busy: true };
@@ -175,6 +187,9 @@ function closeRow(m: ViewMessage): ViewMessage {
     content: m.content + (m.streamingText ?? ""),
     thinking: m.thinking ?? m.streamingThinking,
     streamingText: undefined,
+    streamRevision: undefined,
+    streamingDelta: undefined,
+    streamingDeltaFromRevision: undefined,
     streamingThinking: undefined,
   };
 }

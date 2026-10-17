@@ -69,3 +69,6 @@ PLAN.md
 # design/ 仅本地留存：设计/计划文档与归档（带「来源 + 状态」头，完成即归档），
 # 属维护中间产物，不进入版本库；来源与清理见 .agents/repo-layout.md 生成物地图。
 /design/
+
+# Local test-run intermediate artifacts (test source stays in tests/).
+test/

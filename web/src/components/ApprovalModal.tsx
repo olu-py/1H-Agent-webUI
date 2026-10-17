@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { ApprovalDto } from "../types";
 import type { ChatActions } from "../hooks";
 import { Icon } from "./icons";
@@ -8,7 +8,7 @@ import { Icon } from "./icons";
  * per-session allow → reject/allow. Decisions go through
  * `actions.approve(id, accept, allowSession)`.
  */
-export function ApprovalModal({ approval, actions }: { approval: ApprovalDto | null; actions: ChatActions }) {
+export const ApprovalModal = memo(function ApprovalModal({ approval, actions }: { approval: ApprovalDto | null; actions: ChatActions }) {
   const [allowSession, setAllowSession] = useState(false);
 
   if (!approval) return null;
@@ -54,4 +54,4 @@ export function ApprovalModal({ approval, actions }: { approval: ApprovalDto | n
       </div>
     </div>
   );
-}
+});

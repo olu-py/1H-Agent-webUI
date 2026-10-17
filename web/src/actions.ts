@@ -52,6 +52,11 @@ export interface Actions {
   deleteMemory(id: number): Promise<void>;
   /** Fetches the next (older) message page and prepends it to the cache. */
   loadOlder(): Promise<void>;
+  /** Searches every page in the active session; abort is checked between pages. */
+  searchTranscript(query: string, options?: { signal?: AbortSignal; onProgress?: (scanned: number) => void }): Promise<{ results: Array<{ message: import("./state/transcript").ViewMessage; excerpt: string }>; scanned: number }>;
+  /** Loads the page containing an older offscreen message into the transcript cache. */
+  locateMessage(messageId: number): Promise<boolean>;
+  cancelMessageSearch(): void;
   refreshSnapshot(): Promise<void>;
   refreshTranscript(): Promise<void>;
   /** Closes the event subscription. */
@@ -59,24 +64,39 @@ export interface Actions {
 }
 
 export function createActions(transport: Transport, store: Store): Actions {
+  let sessionReadLifetime = new AbortController();
   let subscription: Subscription | null = null;
   let refreshing = false;
+  let pendingSnapshotRefresh = false;
+  let pendingTranscriptRefresh = false;
+  let stopped = false;
+  let snapshotRevision = 0;
+  let connectionRevision = 0;
+  let transcriptRequest: AbortController | null = null;
 
   const refreshSnapshot = async (): Promise<void> => {
+    const revision = ++snapshotRevision;
     const snapshot = await transport.snapshot();
+    if (stopped || revision !== snapshotRevision) return;
     store.dispatch({ type: "snapshot", snapshot });
   };
 
   const refreshTranscript = async (): Promise<void> => {
+    transcriptRequest?.abort();
+    const request = new AbortController();
+    transcriptRequest = request;
     const { activeSession } = store.getState();
+    if (stopped) return;
     if (!activeSession) {
       store.dispatch({ type: "clearTranscript" });
       return;
     }
     try {
-      const page = await transport.messages(activeSession, { limit: PAGE_SIZE });
+      const page = await transport.messages(activeSession, { limit: PAGE_SIZE, signal: request.signal });
+      if (request.signal.aborted || stopped || store.getState().activeSession !== activeSession) return;
       store.dispatch({ type: "messages", page, replace: true });
     } catch (error) {
+      if (request.signal.aborted || stopped || store.getState().activeSession !== activeSession) return;
       // The active session may have just been deleted server-side: a `/delete`
       // lands a `transcript_invalidated` for the deleted session while the
       // client still points at it, and this follow-up fetch would 404. Its
@@ -88,39 +108,49 @@ export function createActions(transport: Transport, store: Store): Actions {
         return;
       }
       throw error;
+    } finally {
+      if (transcriptRequest === request) transcriptRequest = null;
     }
   };
 
   const onEvent = (envelope: Envelope): void => {
+    if (stopped) return;
     store.dispatch({ type: "event", envelope });
+    if (envelope.type === "resync_required") {
+      void init();
+      return;
+    }
     runEffects();
   };
 
   /** After any event, honor the reducer's dirty flags by refetching. */
   const runEffects = async (): Promise<void> => {
+    const state = store.getState();
+    pendingSnapshotRefresh ||= state.snapshotDirty;
+    pendingTranscriptRefresh ||= state.transcriptDirty;
     if (refreshing) return;
     refreshing = true;
     try {
-      const { snapshotDirty, transcriptDirty } = store.getState();
-      if (snapshotDirty) {
-        try {
-          await refreshSnapshot();
-        } catch (error) {
-          store.dispatch({ type: "error", message: errorMessage(error) });
+      while (pendingSnapshotRefresh || pendingTranscriptRefresh) {
+        const refreshSnapshotNow = pendingSnapshotRefresh;
+        let refreshTranscriptNow = pendingTranscriptRefresh;
+        pendingSnapshotRefresh = false;
+        pendingTranscriptRefresh = false;
+        if (refreshSnapshotNow) {
+          try {
+            await refreshSnapshot();
+          } catch (error) {
+            store.dispatch({ type: "error", message: errorMessage(error) });
+          }
+          // A snapshot change may alter the active session / transcript.
+          refreshTranscriptNow ||= store.getState().transcriptDirty;
         }
-        // A snapshot change may alter the active session / transcript.
-        if (store.getState().transcriptDirty) {
+        if (refreshTranscriptNow) {
           try {
             await refreshTranscript();
           } catch (error) {
             store.dispatch({ type: "error", message: errorMessage(error) });
           }
-        }
-      } else if (transcriptDirty) {
-        try {
-          await refreshTranscript();
-        } catch (error) {
-          store.dispatch({ type: "error", message: errorMessage(error) });
         }
       }
     } finally {
@@ -129,9 +159,18 @@ export function createActions(transport: Transport, store: Store): Actions {
   };
 
   const init = async (): Promise<void> => {
+    const connection = ++connectionRevision;
+    subscription?.unsubscribe();
+    subscription = null;
+    transcriptRequest?.abort();
+    sessionReadLifetime.abort();
+    sessionReadLifetime = new AbortController();
+    stopped = false;
+    const revision = ++snapshotRevision;
     store.dispatch({ type: "connected", connected: false });
     try {
       const snapshot = await transport.snapshot();
+      if (stopped || revision !== snapshotRevision) return;
       if (snapshot.protocol_version !== 2) {
         store.dispatch({
           type: "error",
@@ -140,22 +179,30 @@ export function createActions(transport: Transport, store: Store): Actions {
       }
       store.dispatch({ type: "snapshot", snapshot });
       if (snapshot.active_session) {
-        const page = await transport.messages(snapshot.active_session, { limit: PAGE_SIZE });
-        store.dispatch({ type: "messages", page, replace: true });
+        await refreshTranscript();
       }
+      if (stopped || revision !== snapshotRevision) return;
       store.dispatch({ type: "connected", connected: true });
-      subscription = transport.subscribe(snapshot.event_cursor, onEvent);
+      subscription = transport.subscribe(snapshot.event_cursor, envelope => {
+        if (connection === connectionRevision) onEvent(envelope);
+      });
     } catch (error) {
+      if (stopped || revision !== snapshotRevision) return;
       store.dispatch({ type: "error", message: errorMessage(error) });
     }
   };
 
   const stop = (): void => {
+    connectionRevision += 1;
+    sessionReadLifetime.abort();
+    stopped = true;
+    snapshotRevision += 1;
+    transcriptRequest?.abort();
     subscription?.unsubscribe();
     subscription = null;
   };
 
-  const sessionActions = createSessionActions(transport, store, { refreshSnapshot, refreshTranscript });
+  const sessionActions = createSessionActions(transport, store, { refreshSnapshot, refreshTranscript, readSignal: () => sessionReadLifetime.signal });
   const providerActions = createProviderActions(transport, store, refreshSnapshot);
   const memoryActions = createMemoryActions(transport, store);
 

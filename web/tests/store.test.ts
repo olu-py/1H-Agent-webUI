@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createStore } from "../src/state/store";
 import type { UiState } from "../src/state/reducer";
+import type { AppSnapshotV2, Envelope } from "../src/types";
+import { createMarkdownStreamCache, renderMarkdownStreamUpdate } from "../src/lib/markdown";
 
 /** Minimal action used to drive the store without touching the network. */
 function connected(connected: boolean) {
@@ -13,6 +15,46 @@ function expectState(state: UiState, connected: boolean): void {
 }
 
 describe("createStore coalesced notification", () => {
+  it("delivers every text delta in the coalesced render revision", () => {
+    const store = createStore();
+    store.dispatch({ type: "snapshot", snapshot: {
+      protocol_version: 2, event_cursor: 0, active_session: "s1",
+      sessions: [{ id: "s1", title: "s1", parent_id: null, busy: false, phase: "IDLE", status: "" }],
+      provider: "test", model: "test", mode: "build", approval: null, todos: [],
+      context: null, assistant_partial: null,
+    } as AppSnapshotV2 });
+    vi.advanceTimersByTime(20);
+    const send = (cursor: number, delta: string) => store.dispatch({
+      type: "event",
+      envelope: { type: "text_delta", cursor, session_id: "s1", delta } as Envelope,
+    });
+    send(1, "**one** ");
+    send(2, "**two** ");
+    send(3, "**three** ");
+    vi.advanceTimersByTime(20);
+    const first = store.getSnapshot().messages.at(-1)!;
+    expect(first.streamingDelta).toBe("**one** **two** **three** ");
+    expect(first.streamingDeltaFromRevision).toBe(0);
+    expect(first.streamRevision).toBe(3);
+    const cache = createMarkdownStreamCache();
+    renderMarkdownStreamUpdate(cache, first.streamingText!, 18, true, {
+      id: first.key, revision: first.streamRevision!, fromRevision: first.streamingDeltaFromRevision,
+      delta: first.streamingDelta!,
+    });
+    send(4, "**four** ");
+    send(5, "**five** ");
+    vi.advanceTimersByTime(20);
+    const second = store.getSnapshot().messages.at(-1)!;
+    expect(second.streamingDelta).toBe("**four** **five** ");
+    expect(second.streamingDeltaFromRevision).toBe(3);
+    const update = renderMarkdownStreamUpdate(cache, second.streamingText!, 18, true, {
+      id: second.key, revision: second.streamRevision!, fromRevision: second.streamingDeltaFromRevision,
+      delta: second.streamingDelta!,
+    });
+    expect(update.reset).toBe(false);
+    expect(cache.streamRevision).toBe(5);
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
   });
