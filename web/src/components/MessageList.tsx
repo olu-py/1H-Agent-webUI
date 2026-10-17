@@ -1,11 +1,16 @@
+import { measureViewport, pruneMeasuredRows, retainedAssistantIndex, type MeasuredViewport } from "../lib/message-list-layout";
+import { bindScrollFollower, remainsFollowing } from "../lib/scroll-follow";
+import { p1Record } from "../lib/p1-diagnostics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ActivityState, ViewMessage } from "../state/reducer";
 import { copyText, flashCopied } from "../lib/copy";
+import { markdownCodeCopySource } from "./Markdown";
 import { MessageItem } from "./MessageItem";
 
 const OVERSCAN = 400;
 const ESTIMATED_ROW = 48;
-const STICK_EPSILON = 48;
+
+let diagnosticRowId = 0;
 
 /** Index of the last row whose start offset is <= `offset` (i.e. the row
  * containing `offset`); 0 when `offset` lies before the first row. */
@@ -57,21 +62,20 @@ export function MessageList({
   hasMore,
   onLoadOlder,
   activity,
+  jumpRequest,
 }: {
   messages: ViewMessage[];
   hasMore: boolean;
   onLoadOlder: () => void;
   activity: ActivityState;
+  jumpRequest: { id: number; nonce: number } | null;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const heights = useRef<Map<string, number>>(new Map());
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportH, setViewportH] = useState(0);
-  // Bumped whenever a measured row height changes. The layout memo depends on
-  // it, so measurements apply on the very next (pre-paint) render instead of
-  // waiting for the next `messages` update - the old behavior let stale
-  // estimates accumulate and then jump all at once.
-  const [heightsVersion, setHeightsVersion] = useState(0);
+  const [geometry, setGeometry] = useState<MeasuredViewport>(() => ({ heights: new Map(), scrollTop: 0, viewportH: 0, revision: 0 }));
+  const { scrollTop, viewportH } = geometry;
+  const geometryRef = useRef(geometry); geometryRef.current = geometry;
+  const setScrollTop = useCallback((top: number) => setGeometry(previous => measureViewport(previous, [], top, previous.viewportH)), []);
+  const appliedScrollTopRef = useRef<number | null>(null);
   const stickRef = useRef(true);
   const loadingOlderRef = useRef(false);
   const hasMoreRef = useRef(hasMore);
@@ -102,18 +106,27 @@ export function MessageList({
       const target = (e.target as HTMLElement | null)?.closest?.("[data-copy]");
       if (!target) return;
       const block = target.closest(".code-block");
-      const code = block?.querySelector(".code-body")?.textContent ?? "";
+      const code = markdownCodeCopySource(target as HTMLElement) ??
+        block?.querySelector(".code-body")?.textContent ?? "";
       void copyText(code).then((ok) => flashCopied(target as HTMLElement, ok));
     };
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
   }, []);
 
+  useLayoutEffect(() => {
+    const root = containerRef.current;
+    if (root) return bindScrollFollower(root, () => stickRef.current);
+  }, []);
+
   // Track viewport height.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const measure = () => setViewportH(el.clientHeight);
+    const measure = () => {
+      const top = el.scrollTop, height = el.clientHeight;
+      setGeometry(previous => measureViewport(previous, [], top, height));
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -129,33 +142,41 @@ export function MessageList({
   const observerRef = useRef<ResizeObserver | null>(null);
   const rowEls = useRef(new Map<string, HTMLDivElement>());
   const rowRefs = useRef(new Map<string, (el: HTMLDivElement | null) => void>());
-  const setRowHeight = useCallback((key: string, height: number) => {
-    if (heights.current.get(key) === height) return;
-    heights.current.set(key, height);
-    setHeightsVersion((v) => v + 1);
+  const setRowHeights = useCallback((rows: ReadonlyArray<readonly [string, number]>) => {
+    const root = containerRef.current;
+    if (!root) return;
+    const top = root.scrollTop, viewport = root.clientHeight;
+    setGeometry(previous => measureViewport(previous, rows, top, viewport));
+    p1Record(43, rows.length, top, viewport, geometryRef.current.revision);
   }, []);
   const rowRefFor = useCallback(
     (key: string) => {
       let ref = rowRefs.current.get(key);
       if (ref) return ref;
+      const rowId = ++diagnosticRowId;
       ref = (el: HTMLDivElement | null) => {
         if (el) {
           el.dataset.rowKey = key;
+          el.dataset.p1RowId = String(rowId);
+          p1Record(40, rowId, geometryRef.current.revision);
           rowEls.current.set(key, el);
           if (!observerRef.current) {
             observerRef.current = new ResizeObserver((entries) => {
+              const measurements: Array<readonly [string, number]> = [];
               for (const entry of entries) {
                 const target = entry.target as HTMLDivElement;
                 const k = target.dataset.rowKey;
-                if (k) setRowHeight(k, target.getBoundingClientRect().height);
+                if (k && rowEls.current.get(k) === target) measurements.push([k, entry.borderBoxSize[0]?.blockSize ?? target.getBoundingClientRect().height]);
               }
+              setRowHeights(measurements);
             });
           }
           observerRef.current.observe(el);
-          setRowHeight(key, el.getBoundingClientRect().height);
+          setRowHeights([[key, el.getBoundingClientRect().height]]);
         } else {
           const mounted = rowEls.current.get(key);
           if (mounted) {
+            p1Record(41, rowId, geometryRef.current.revision);
             observerRef.current?.unobserve(mounted);
             rowEls.current.delete(key);
           }
@@ -164,16 +185,14 @@ export function MessageList({
       rowRefs.current.set(key, ref);
       return ref;
     },
-    [setRowHeight],
+    [setRowHeights],
   );
   // The reducer may evict either end of the bounded transcript window. Drop
   // all DOM/layout/animation bookkeeping for rows that left the window; a
   // long stream or repeated history paging must not retain every old key.
   useLayoutEffect(() => {
     const liveKeys = new Set(messages.map((message) => message.key));
-    for (const key of heights.current.keys()) {
-      if (!liveKeys.has(key)) heights.current.delete(key);
-    }
+    setGeometry(previous => pruneMeasuredRows(previous, liveKeys));
     for (const [key, element] of rowEls.current) {
       if (liveKeys.has(key)) continue;
       observerRef.current?.unobserve(element);
@@ -194,15 +213,24 @@ export function MessageList({
   const layout = useMemo(() => {
     const offsets: number[] = [0];
     for (const m of messages) {
-      offsets.push(offsets[offsets.length - 1] + (heights.current.get(m.key) ?? ESTIMATED_ROW));
+      offsets.push(offsets[offsets.length - 1] + (geometry.heights.get(m.key) ?? ESTIMATED_ROW));
     }
     return offsets;
-  }, [messages, heightsVersion]);
+  }, [messages, geometry.heights]);
   const totalHeight = layout[layout.length - 1] ?? 0;
 
   const start = findRowContaining(layout, Math.max(0, scrollTop - OVERSCAN));
   const end = findRowFrom(layout, scrollTop + viewportH + OVERSCAN);
-  const visible = messages.slice(start, end);
+  const renderedIndices = messages.slice(start, end).map((_, index) => start + index);
+  // The latest oversized assistant row owns an inner content virtualizer. Keep
+  // that one row mounted while it is outside the list window so the inner
+  // chunk measurements and scroll position survive a trip through history.
+  // It is absolutely positioned in the spacer and does not affect list flow.
+  const keepaliveLongIndex = retainedAssistantIndex(messages, stickRef.current);
+  if (keepaliveLongIndex >= 0 && (keepaliveLongIndex < start || keepaliveLongIndex >= end)) {
+    renderedIndices.push(keepaliveLongIndex);
+    renderedIndices.sort((left, right) => left - right);
+  }
   const tailKey = messages.length > 0 ? messages[messages.length - 1].key : null;
 
   // Auto-scroll to bottom while the user is pinned there. Pre-paint so a
@@ -211,7 +239,23 @@ export function MessageList({
     const el = containerRef.current;
     if (!el || !stickRef.current) return;
     el.scrollTop = el.scrollHeight;
+    appliedScrollTopRef.current = el.scrollTop;
+    prevScrollTopRef.current = el.scrollTop;
+    setScrollTop(el.scrollTop);
+    p1Record(44, geometry.revision, el.scrollTop, totalHeight);
   }, [messages.length, totalHeight]);
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el || !jumpRequest) return;
+    const index = messages.findIndex((message) => message.id === jumpRequest.id);
+    if (index < 0) return;
+    stickRef.current = false;
+    appliedScrollTopRef.current = null;
+    el.scrollTop = Math.max(0, (layout[index] ?? 0) - 72);
+    prevScrollTopRef.current = el.scrollTop;
+    setScrollTop(el.scrollTop);
+  }, [jumpRequest, layout, messages]);
 
   // Entrance animation for tail-appended rows, applied pre-paint. Only
   // synthetic rows animate: they are exactly the optimistic tail appends
@@ -220,7 +264,9 @@ export function MessageList({
   // animate, and rows first seen while scrolled away from the bottom are
   // skipped so scrolling them back into view never replays the fade.
   useLayoutEffect(() => {
-    for (const m of visible) {
+    for (const index of renderedIndices) {
+      if (index < start || index >= end) continue;
+      const m = messages[index];
       if (!m.key.startsWith("syn-")) continue;
       if (animatedKeysRef.current.has(m.key)) continue;
       animatedKeysRef.current.add(m.key);
@@ -259,7 +305,9 @@ export function MessageList({
     if (!el) return;
     setScrollTop(el.scrollTop);
     prevScrollTopRef.current = el.scrollTop;
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_EPSILON;
+    stickRef.current = remainsFollowing(stickRef.current, el.scrollTop, appliedScrollTopRef.current, el.scrollHeight, el.clientHeight);
+    if (!stickRef.current) appliedScrollTopRef.current = null;
+    p1Record(45, stickRef.current ? 1 : 0, el.scrollTop, geometryRef.current.revision);
     // Load an older page when near the top; the compensation effect above
     // anchors the viewport across the prepend.
     if (hasMoreRef.current && el.scrollTop < 80 && !loadingOlderRef.current) {
@@ -271,26 +319,40 @@ export function MessageList({
     }
   }, []);
 
+  useLayoutEffect(() => { p1Record(42, geometry.revision, start, end, totalHeight); });
+
   return (
     <div className="messages" ref={containerRef} onScroll={onScroll}>
       <div style={{ height: totalHeight, position: "relative" }}>
         <div style={{ transform: `translateY(${layout[start] ?? 0}px)` }}>
-          {visible.map((m) => (
-            <div key={m.key} ref={rowRefFor(m.key)} className="message-row">
-              <MessageItem
-                message={m}
-                liveThinking={
-                  activity.kind === "thinking" &&
-                  m.streamingThinking !== undefined &&
-                  // Only the row still in its thinking phase (no body text yet)
-                  // is the live one; an earlier segment's row stays collapsed.
-                  m.streamingText === undefined
+            {renderedIndices.map((index) => {
+              const message = messages[index];
+              const outsideWindow = index < start || index >= end;
+              const rowStyle = outsideWindow
+                ? {
+                  position: "absolute" as const,
+                  top: (layout[index] ?? 0) - (layout[start] ?? 0),
+                  left: 0,
+                  right: 0,
                 }
-                isTail={m.key === tailKey}
-                onContentToggle={handleContentToggle}
-              />
-            </div>
-          ))}
+                : undefined;
+              return (
+                <div key={message.key} ref={rowRefFor(message.key)} className="message-row" data-message-id={message.id} style={rowStyle}>
+                  <MessageItem
+                    message={message}
+                    liveThinking={
+                      activity.kind === "thinking" &&
+                      message.streamingThinking !== undefined &&
+                      // Only the row still in its thinking phase (no body text yet)
+                      // is the live one; an earlier segment's row stays collapsed.
+                      message.streamingText === undefined
+                    }
+                    isTail={message.key === tailKey}
+                    onContentToggle={handleContentToggle}
+                  />
+                </div>
+              );
+            })}
         </div>
       </div>
     </div>

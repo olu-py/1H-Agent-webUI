@@ -75,12 +75,12 @@ export class HttpSseTransport implements Transport {
     return this.json("/api/v2/state");
   }
 
-  messages(sessionId: string, opts?: { before?: number | null; limit?: number }): Promise<MessagePage> {
+  messages(sessionId: string, opts?: { before?: number | null; limit?: number; signal?: AbortSignal }): Promise<MessagePage> {
     const query = encodeQuery({
       before: opts?.before ?? undefined,
       limit: opts?.limit,
     });
-    return this.json(`/api/v2/sessions/${encodeURIComponent(sessionId)}/messages${query}`);
+    return this.json(`/api/v2/sessions/${encodeURIComponent(sessionId)}/messages${query}`, { signal: opts?.signal });
   }
 
   memories(query?: string, includeDeleted = false): Promise<MemoryDto[]> {

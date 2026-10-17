@@ -32,6 +32,27 @@ function assistantMessage(id: number, content: string): MessageDto {
 }
 
 describe("reducer", () => {
+  it("keeps the rendered row mounted when an identical stream settles", () => {
+    let state = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    state = reduce(state, { type: "event", envelope: env(11, "s1", { type: "text_delta", delta: "long " }) });
+    state = reduce(state, { type: "event", envelope: env(12, "s1", { type: "text_delta", delta: "reply" }) });
+    const liveKey = state.messages[0].key;
+    const page: MessagePage = {
+      messages: [assistantMessage(10, "long reply")], next_before: null, has_more: false,
+    };
+    state = reduce(state, { type: "messages", page, replace: true });
+    expect(state.messages[0].key).toBe(liveKey);
+    expect(state.messages[0].id).toBe(10);
+    state = reduce(state, { type: "messages", page, replace: true });
+    expect(state.messages[0].key).toBe(liveKey);
+    state = reduce(state, {
+      type: "messages",
+      page: { ...page, messages: [assistantMessage(11, "different reply")] },
+      replace: true,
+    });
+    expect(state.messages[0].key).toBe("m-11");
+  });
+
   it("applies a snapshot and clears its dirty flag", () => {
     let s = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
     expect(s.activeSession).toBe("s1");
@@ -112,11 +133,15 @@ describe("reducer", () => {
     const last = s.messages[s.messages.length - 1];
     expect(last.kind).toBe("assistant");
     expect(last.streamingText).toBe("Hello");
+    expect(last.streamRevision).toBe(2);
+    expect(last.streamingDelta).toBe("lo");
     expect(s.activity.kind).toBe("generating");
     // completion flushes streaming into content
     s = reduce(s, { type: "event", envelope: env(13, "s1", { type: "completed" }) });
     const flushed = s.messages[s.messages.length - 1];
     expect(flushed.streamingText).toBeUndefined();
+    expect(flushed.streamRevision).toBeUndefined();
+    expect(flushed.streamingDelta).toBeUndefined();
     expect(flushed.content).toBe("Hello");
     expect(s.busy).toBe(false);
     expect(s.activity.kind).toBe("completed");
@@ -276,6 +301,23 @@ describe("reducer", () => {
     });
     expect(s.backgroundStatus["c1"]).toBe("已完成");
     expect(s.childStatus["c1"]).toBe("completed");
+  });
+
+  it("keeps tree status map identities for duplicate child progress labels", () => {
+    const base = reduce(initialState, { type: "snapshot", snapshot: snapshot() });
+    const progress = {
+      type: "child_session_progress",
+      child_session_id: "c1",
+      status: "running",
+      phase: "running_tool",
+      turn: 1,
+      max_turns: 3,
+      tool: "read_file",
+    };
+    const first = reduce(base, { type: "event", envelope: env(11, "s1", progress) });
+    const second = reduce(first, { type: "event", envelope: env(12, "s1", progress) });
+    expect(second.childStatus).toBe(first.childStatus);
+    expect(second.backgroundStatus).toBe(first.backgroundStatus);
   });
 
   it("restores terminal child status and localized label from a snapshot", () => {

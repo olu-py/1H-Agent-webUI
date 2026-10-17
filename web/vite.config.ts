@@ -11,10 +11,11 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     target: "es2022",
+    sourcemap: process.env.P1_SOURCE_MAP === "1" ? "hidden" : false,
   },
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.{ts,tsx}", "benchmarks/**/*.test.ts"],
     benchmark: {
       include: ["benchmarks/**/*.bench.ts"],
     },

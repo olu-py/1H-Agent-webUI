@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import type { ChatActions } from "../hooks";
 import type { UiState } from "../state/reducer";
+import type { Store } from "../state/store";
 import type { ThemePreference } from "../lib/theme";
 import { attachToolOutputs, withPartial } from "../lib/transcript";
 import { Composer } from "./Composer";
@@ -19,6 +20,7 @@ import { Presence } from "./Presence";
  */
 export function ChatScreen({
   state,
+  store,
   actions,
   theme,
   onCycleTheme,
@@ -28,8 +30,11 @@ export function ChatScreen({
   onTogglePalette,
   onOpenProvider,
   onOpenMemory,
+  onSearchTranscript,
+  jumpRequest,
 }: {
   state: UiState;
+  store: Store;
   actions: ChatActions;
   theme: ThemePreference;
   onCycleTheme: () => void;
@@ -39,6 +44,8 @@ export function ChatScreen({
   onTogglePalette: () => void;
   onOpenProvider: () => void;
   onOpenMemory: () => void;
+  onSearchTranscript: () => void;
+  jumpRequest: { id: number; nonce: number } | null;
 }) {
   const active = state.sessions.find((s) => s.id === state.activeSession);
   // Fold tool outputs into their call rows before rendering; memoized so
@@ -49,15 +56,15 @@ export function ChatScreen({
     [state.messages, state.assistantPartial, state.busy],
   );
   // On mobile the drawer closes after picking a session; desktop is static.
-  const onToggleSessionsClosed = () => {
+  const onToggleSessionsClosed = useCallback(() => {
     if (showSessions && window.matchMedia("(max-width: 860px)").matches) {
       onToggleSessions();
     }
-  };
-  const activate = (id: string) => {
+  }, [onToggleSessions, showSessions]);
+  const activate = useCallback((id: string) => {
     void actions.activate(id);
     onToggleSessionsClosed();
-  };
+  }, [actions, onToggleSessionsClosed]);
 
   const themeTitle =
     theme === "auto" ? "主题：跟随系统" : theme === "light" ? "主题：浅色" : "主题：深色";
@@ -96,11 +103,7 @@ export function ChatScreen({
           </button>
           <div className="sidebar-tree">
             <SessionTree
-              sessions={state.sessions}
-              active={state.activeSession}
-              statuses={state.backgroundStatus}
-              childStatuses={state.childStatus}
-              approval={state.approval}
+              store={store}
               onActivate={activate}
               actions={actions}
             />
@@ -133,6 +136,9 @@ export function ChatScreen({
                 aria-label="命令面板"
               >
                 <Icon name="palette" size={16} />
+              </button>
+              <button type="button" className="icon-btn" onClick={onSearchTranscript} title="查找完整会话（Ctrl+F）" aria-label="查找完整会话">
+                <Icon name="search" size={16} />
               </button>
               <button type="button" className="icon-btn" onClick={onOpenMemory} title="工作区记忆" aria-label="工作区记忆">
                 <Icon name="search" size={16} />
@@ -174,6 +180,7 @@ export function ChatScreen({
               hasMore={state.hasMore}
               onLoadOlder={() => void actions.loadOlder()}
               activity={state.activity}
+              jumpRequest={jumpRequest}
             />
             <Composer
               key={state.activeSession ?? "none"}

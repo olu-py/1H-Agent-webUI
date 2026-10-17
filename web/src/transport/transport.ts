@@ -27,7 +27,7 @@ export interface Transport {
   /** `GET /api/v2/sessions/{id}/messages?before=&limit=` */
   messages(
     sessionId: string,
-    opts?: { before?: number | null; limit?: number },
+    opts?: { before?: number | null; limit?: number; signal?: AbortSignal },
   ): Promise<MessagePage>;
   memories(query?: string, includeDeleted?: boolean): Promise<MemoryDto[]>;
   saveMemory(title: string, content: string, candidate?: boolean): Promise<MemoryDto>;

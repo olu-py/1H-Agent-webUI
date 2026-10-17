@@ -3,6 +3,7 @@ import { App } from "./App";
 import { createStore } from "./state/store";
 import { createActions } from "./actions";
 import { HttpSseTransport } from "./transport/http-sse";
+import { nativeIpc, TauriIpcTransport } from "./transport/tauri-ipc";
 import { applyTheme, getThemePreference } from "./lib/theme";
 import "./styles.css";
 
@@ -10,9 +11,10 @@ import "./styles.css";
 // inline script in index.html) so React state and the DOM never diverge.
 applyTheme(getThemePreference());
 
-// Transport selection: the browser build always uses HTTP+SSE. The Desktop
-// build swaps this for TauriIpcTransport without touching views/actions.
+// Native hosts expose the Tauri API; browsers use HTTP+SSE.
 function makeTransport() {
+  const ipc = nativeIpc();
+  if (ipc) return new TauriIpcTransport(ipc);
   // Remote deployments gate the API behind a bearer token; pass it via the
   // ?token= query for the SSE connection and store it for REST calls.
   const params = new URLSearchParams(window.location.search);

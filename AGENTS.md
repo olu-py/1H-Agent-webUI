@@ -52,7 +52,7 @@ browser --REST/SSE--> AppHandle --command--> App/SessionRuntime --> AgentRunner 
                           +--EventBridge(ring)-----+                     +-> RoutedEvent(session_id) -> EventBridge
 ```
 
-- UI 无关核心在 `protium-core`（`service.rs` 的 `AppService::start -> AppHandle`）；消费端（Web/TUI/Desktop）只通过 `AppHandle` 的方法（snapshot/messages/submit/execute_command/approve/cancel/activate_session/set_provider/subscribe/shutdown）串行进入状态机，`App` 管全局状态、当前/后台 runtime 和路由；`SessionRuntime` 独占单会话状态，切换不停止后台任务；后台容量与删除关停契约见 Runtime 专题。
+- UI 无关核心在 `protium-core`（`service.rs` 的 `AppService::start -> AppHandle`）；消费端（Web/TUI/Desktop）只通过 `AppHandle` 的方法（snapshot/messages/submit/request_sequence/execute_command/approve/cancel/activate_session/set_provider/subscribe/shutdown）串行进入状态机，`App` 管全局状态、当前/后台 runtime 和路由；`SessionRuntime` 独占单会话状态，切换不停止后台任务；后台容量与删除关停契约见 Runtime 专题。
 - 三段事件链语义不变：agent task --`agent_tx`--> 转发 task --`router_tx`--> 消费端；事件按 `session_id` 路由，未知 id 静默丢弃。
 - 事件投递经全局有界回放环 `EventBridge`（进程内单调游标、容量 clamp）；游标被逐出或消费者滞后时发 `resync_required`，消费端重取快照与消息页。消息页按游标分页（`next_before` + `has_more`），历史变更发 `transcript_invalidated`。
 - Provider 私有协议先规范化为 `ModelEvent`；服务端、存储和工具层不解析私有 JSON。

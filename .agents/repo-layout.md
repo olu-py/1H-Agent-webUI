@@ -41,6 +41,7 @@
 | `dist/`、`*.deb`、`*.msi`、`*.zip`、`*.tar.gz` | 本地打包（package 脚本输出在仓库外，此项防手滑） | 可删 |
 | `gui-test-screenshots/` | 人工 GUI 验证截图 | 可删 |
 | `.smoke-test-*/` | `smoke-web.sh` 被强杀时的残留 | 可删 |
+| `test/` (any level) | Local test-run intermediate artifacts | Ignored; `web/tests/` remains tracked test source |
 | `design/` | 仅存放任务期间产生、完成后归档或删除的临时维护计划与实施记录；git 忽略不上传，仅本地留存 | 不得存放长期有效的维护指南或 workflow；长期规则写入 `.agents/guides/` 并登记在根 `AGENTS.md` |
 | `config.toml`、`.env*`、`*.db*`、`*.log` | 密钥与运行态 | **绝不入库**；按需清理 |
 | `/.1h-agent/`、`/.agent-data/`、`/.runtime-data/`、`/.1h-agent-*.md` | 历史遗留名，现行脚本与 core 均不再产生 | 出现即删（.gitignore 保留防护防复发） |

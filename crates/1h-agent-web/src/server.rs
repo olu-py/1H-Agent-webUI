@@ -24,15 +24,14 @@ use axum::{
         sse::{Event as SseEvent, KeepAlive, Sse},
     },
     routing::{delete, get, patch, post},
+    serve::ListenerExt,
 };
 use futures_util::StreamExt;
 use protium_core::{
-    bridge::ReplayResult,
     protocol::{ApiError, ApiErrorKind, Envelope, Event, PROTOCOL_VERSION},
     service::{AppHandle, AppService, CoreConfig},
 };
 use serde::Deserialize;
-use tokio::sync::broadcast;
 
 use crate::auth::Auth;
 
@@ -132,7 +131,14 @@ pub async fn run(workspace_path: PathBuf, config: protium_core::config::Config) 
 
     let state = ServerState { handle, auth };
     let router = build_router(state);
-    let listener = tokio::net::TcpListener::bind(socket).await?;
+    let listener = tokio::net::TcpListener::bind(socket)
+        .await?
+        .tap_io(|stream| {
+            // REST replies and SSE deltas are small latency-sensitive writes.
+            if let Err(error) = stream.set_nodelay(true) {
+                tracing::warn!(%error, "could not disable Nagle on HTTP connection");
+            }
+        });
     tracing::info!(
         "1H-Agent Web (v{PROTOCOL_VERSION}) listening on http://{socket}{}",
         if auth_enabled {
@@ -569,10 +575,9 @@ async fn delete_provider_config(
 
 /// `GET /api/v2/events?cursor=<u64>&session=<id>` — SSE stream.
 ///
-/// The client subscribes from the snapshot's `event_cursor`. Buffered events
-/// strictly after that cursor are replayed first (replay *before* subscribing
-/// so nothing between the two is missed or duplicated), then live events
-/// stream until the connection closes. When the requested cursor has been
+/// The client subscribes atomically from the snapshot's `event_cursor`.
+/// Buffered events strictly after that cursor are replayed first, then live
+/// events stream until the connection closes. When the requested cursor has been
 /// evicted from the bridge ring — or the consumer lags the live channel — a
 /// `resync_required` envelope is emitted so the consumer refetches the snapshot
 /// and message page instead of guessing the missing state.
@@ -596,39 +601,73 @@ async fn sse_handler(
                 .and_then(|value| value.parse::<u64>().ok())
         });
 
-    // Replay first, then subscribe: replay-before-subscribe guarantees no gap
-    // and no duplicate between the two.
-    let replay = match cursor {
-        Some(after) => handle.replay_after(after),
-        None => ReplayResult::Replay(Vec::new()),
-    };
-    let mut receiver: broadcast::Receiver<Arc<Envelope>> = handle.subscribe();
-    let replay_events: Vec<Arc<Envelope>> = match replay {
-        ReplayResult::Replay(events) => events,
-        ReplayResult::ResyncRequired => vec![resync_envelope(&handle)],
+    // subscribe_from closes the replay/live gap. If the requested cursor was
+    // evicted, establish a fresh atomic subscription after a resync marker; a
+    // few retries cover a continuously advancing ring without spinning forever.
+    let mut replay_events = Vec::new();
+    let mut needs_resync = false;
+    let mut requested_cursor = cursor;
+    let mut subscription = None;
+    for _ in 0..4 {
+        let after = requested_cursor.unwrap_or_else(|| handle.current_cursor());
+        match handle.subscribe_cursor_from(after) {
+            Ok(next) => {
+                if needs_resync {
+                    replay_events.push(resync_envelope_at(after));
+                }
+                let replay = next.replay;
+                let changed = next.changed;
+                replay_events.extend(replay);
+                subscription = Some((after, changed));
+                break;
+            }
+            Err(_) => {
+                needs_resync = true;
+                requested_cursor = None;
+            }
+        }
+    }
+    let Some((mut last_cursor, mut changed)) = subscription else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
 
     // Materialize the replay into owned SSE events so the returned stream does
     // not borrow local state.
-    let replay_stream =
-        futures_util::stream::iter(replay_events.iter().map(to_sse).collect::<Vec<_>>());
+    let mut replay_out = Vec::with_capacity(replay_events.len());
+    for envelope in replay_events {
+        last_cursor = last_cursor.max(envelope.cursor);
+        if matches!(envelope.event, Event::ResyncRequired)
+            || filter.as_ref().is_none_or(|f| &envelope.session_id == f)
+        {
+            replay_out.push(to_sse(&envelope));
+        }
+    }
+    let replay_stream = futures_util::stream::iter(replay_out);
     let stream = replay_stream.chain(async_stream::stream! {
+        const EVENT_BATCH: usize = 128;
         loop {
-            match receiver.recv().await {
-                Ok(envelope) => {
-                    if let Some(f) = &filter
-                        && &envelope.session_id != f
-                    {
-                        continue;
+            match handle.events_after(last_cursor, EVENT_BATCH) {
+                Some(events) if !events.is_empty() => {
+                    for envelope in events {
+                        last_cursor = envelope.cursor;
+                        if filter.as_ref().is_none_or(|f| &envelope.session_id == f) {
+                            yield to_sse(&envelope);
+                        }
                     }
-                    yield to_sse(&envelope);
+                    continue;
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => {
-                    // Too slow: tell the consumer to resync rather than leave
-                    // it with a silently missing slice of history.
-                    yield to_sse(&resync_envelope(&handle));
+                Some(_) => {}
+                None => {
+                    // The ring no longer covers this consumer's cursor. Ask it
+                    // to resync and continue from the authoritative current
+                    // cursor, so recovery does not create an unbounded queue.
+                    last_cursor = handle.current_cursor();
+                    yield to_sse(&resync_envelope_at(last_cursor));
+                    continue;
                 }
-                Err(broadcast::error::RecvError::Closed) => break,
+            }
+            if changed.changed().await.is_err() {
+                break;
             }
         }
     });
@@ -638,10 +677,9 @@ async fn sse_handler(
         .into_response()
 }
 
-/// A synthetic envelope telling the consumer to refetch snapshot + messages.
-fn resync_envelope(handle: &AppHandle) -> Arc<Envelope> {
+fn resync_envelope_at(cursor: u64) -> Arc<Envelope> {
     Arc::new(Envelope {
-        cursor: handle.current_cursor(),
+        cursor,
         session_id: String::new(),
         event: Event::ResyncRequired,
     })

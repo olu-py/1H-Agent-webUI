@@ -3,15 +3,36 @@ import type { Transport } from "../transport/transport";
 import type { Store } from "../state/store";
 import { PAGE_SIZE } from "../state/reducer";
 import { errorMessage } from "./shared";
+import { toViewMessage, type ViewMessage } from "../state/transcript";
 
 type Refresh = () => Promise<void>;
 
 export function createSessionActions(
   transport: Transport,
   store: Store,
-  helpers: { refreshSnapshot: Refresh; refreshTranscript: Refresh },
+  helpers: { refreshSnapshot: Refresh; refreshTranscript: Refresh; readSignal: () => AbortSignal },
 ) {
   const { refreshSnapshot, refreshTranscript } = helpers;
+  let locateRevision = 0;
+  let olderRequest: AbortController | undefined;
+  let locateRequest: AbortController | undefined;
+  const readPage: Transport["messages"] = async (session, options) => {
+    const switched = new AbortController();
+    const unsubscribe = store.subscribeSession(() => {
+      if (store.getState().activeSession !== session) switched.abort();
+    });
+    const signal = AbortSignal.any([switched.signal, helpers.readSignal(), ...(options?.signal ? [options.signal] : [])]);
+    signal.addEventListener("abort", unsubscribe, { once: true });
+    try {
+      signal.throwIfAborted();
+      const page = await transport.messages(session, { ...options, signal });
+      signal.throwIfAborted();
+      return page;
+    } catch (error) {
+      signal.throwIfAborted();
+      throw error;
+    } finally { signal.removeEventListener("abort", unsubscribe); unsubscribe(); }
+  };
   const submit = async (text: string, mode?: string): Promise<void> => {
     store.dispatch({ type: "clearError" });
     // Optimistic echo: append the outgoing message before the request so the
@@ -126,15 +147,88 @@ export function createSessionActions(
   const loadOlder = async (): Promise<void> => {
     const { activeSession, nextBefore, hasMore } = store.getState();
     if (!activeSession || !hasMore || nextBefore === null) return;
+    olderRequest?.abort();
+    const request = new AbortController();
+    olderRequest = request;
     try {
-      const page = await transport.messages(activeSession, {
+      const page = await readPage(activeSession, {
         before: nextBefore,
         limit: PAGE_SIZE,
+        signal: request.signal,
       });
+      if (request.signal.aborted || helpers.readSignal().aborted || store.getState().activeSession !== activeSession) return;
       store.dispatch({ type: "messages", page, replace: false });
     } catch (error) {
+      if (request.signal.aborted || helpers.readSignal().aborted || store.getState().activeSession !== activeSession || (error instanceof DOMException && error.name === "AbortError")) return;
       store.dispatch({ type: "error", message: errorMessage(error) });
-    }
+    } finally { if (olderRequest === request) olderRequest = undefined; }
   };
-  return { submit, executeCommand, approve, cancel, activate, forkSession, deleteSession, loadOlder };
+  const searchTranscript = async (
+    query: string,
+    options: { signal?: AbortSignal; onProgress?: (scanned: number) => void } = {},
+  ): Promise<{ results: Array<{ message: ViewMessage; excerpt: string }>; scanned: number }> => {
+    const needle = query.trim().toLocaleLowerCase();
+    const { activeSession } = store.getState();
+    if (!needle || !activeSession) return { results: [], scanned: 0 };
+    const results: Array<{ message: ViewMessage; excerpt: string }> = [];
+    let before: number | null = null;
+    let scanned = 0;
+    while (!options.signal?.aborted && store.getState().activeSession === activeSession) {
+      const page = await readPage(activeSession, {
+        before,
+        limit: PAGE_SIZE,
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+      if (options.signal?.aborted || store.getState().activeSession !== activeSession) break;
+      for (const dto of page.messages) {
+        scanned += 1;
+        const candidate = [
+          "content" in dto ? dto.content : "",
+          "output" in dto ? dto.output : "",
+          "result" in dto ? dto.result ?? "" : "",
+          "name" in dto ? dto.name : "",
+          "arguments" in dto ? JSON.stringify(dto.arguments) : "",
+          "calls" in dto ? JSON.stringify(dto.calls) : "",
+        ].filter(Boolean).join("\n");
+        const index = candidate.toLocaleLowerCase().indexOf(needle);
+        if (index >= 0) {
+          const start = Math.max(0, index - 72);
+          results.push({
+            message: toViewMessage(dto),
+            excerpt: `${start ? "…" : ""}${candidate.slice(start, index + needle.length + 112)}${index + needle.length + 112 < candidate.length ? "…" : ""}`,
+          });
+        }
+      }
+      options.onProgress?.(scanned);
+      if (!page.has_more || page.next_before === null) break;
+      before = page.next_before;
+    }
+    return { results, scanned };
+  };
+  const locateMessage = async (messageId: number): Promise<boolean> => {
+    locateRequest?.abort();
+    const request = new AbortController();
+    locateRequest = request;
+    const revision = ++locateRevision;
+    const { activeSession, messages } = store.getState();
+    if (!activeSession) return false;
+    const cached = messages.find((message) => message.id === messageId);
+    if (cached) return true;
+    let before: number | null = null;
+    while (revision === locateRevision && store.getState().activeSession === activeSession) {
+      let page;
+      try { page = await readPage(activeSession, { before, limit: PAGE_SIZE, signal: request.signal }); }
+      catch (error) { if (request.signal.aborted || helpers.readSignal().aborted || store.getState().activeSession !== activeSession || (error instanceof DOMException && error.name === "AbortError")) return false; throw error; }
+      if (revision !== locateRevision || store.getState().activeSession !== activeSession) return false;
+      if (page.messages.some((message) => Number(message.id) === messageId)) {
+        store.dispatch({ type: "messages", page, replace: true });
+        return true;
+      }
+      if (!page.has_more || page.next_before === null) return false;
+      before = page.next_before;
+    }
+    return false;
+  };
+  const cancelMessageSearch = () => { locateRevision += 1; locateRequest?.abort(); locateRequest = undefined; };
+  return { submit, executeCommand, approve, cancel, activate, forkSession, deleteSession, loadOlder, searchTranscript, locateMessage, cancelMessageSearch };
 }

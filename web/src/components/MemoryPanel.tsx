@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import type { ChatActions } from "../hooks";
 import type { MemoryDto } from "../types";
 import { Icon } from "./icons";
 
 /** Small, explicit memory manager. Nothing is auto-confirmed here: candidates
  * remain reviewable until the user confirms them. */
-export function MemoryPanel({
+export const MemoryPanel = memo(function MemoryPanel({
   memories,
   actions,
   onClose,
@@ -22,10 +22,7 @@ export function MemoryPanel({
 
   useEffect(() => {
     void actions.loadMemories(undefined, true);
-    // The app-owned action facade is intentionally stable in behavior but is
-    // recreated by the hook; load only when this modal mounts.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [actions]);
 
   const search = () => void actions.loadMemories(query, true);
   const save = async () => {
@@ -86,4 +83,4 @@ export function MemoryPanel({
       </section>
     </div>
   );
-}
+});

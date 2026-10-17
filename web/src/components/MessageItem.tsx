@@ -52,10 +52,22 @@ export const MessageItem = memo(function MessageItem({
           ) : null}
           {message.partial ? <span className="badge partial">未完成</span> : null}
           {text ? (
-            <Markdown text={text} fadeTail={streaming} />
+            <Markdown
+              text={text}
+              fadeTail={streaming}
+              stream={streaming && message.streamRevision !== undefined
+                ? {
+                  id: message.key,
+                  revision: message.streamRevision,
+                  delta: message.streamingDelta ?? "",
+                  fromRevision: message.streamingDeltaFromRevision,
+                }
+                : undefined}
+            />
           ) : message.streamingText === undefined && !message.thinking ? (
             <em className="dim">…</em>
           ) : null}
+          {text.length >= 96 * 1024 ? <AssistantCopyButton text={text} /> : null}
         </div>
       );
     }
@@ -108,6 +120,24 @@ export const MessageItem = memo(function MessageItem({
       );
   }
 });
+
+function AssistantCopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = () => {
+    void copyText(text).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  return (
+    <button type="button" className="user-copy assistant-copy"
+      title={copied ? "已复制" : "复制完整消息"} aria-label="复制完整消息"
+      onClick={onCopy}>
+      <Icon name={copied ? "check" : "copy"} size={12} />
+    </button>
+  );
+}
 
 /** Right-aligned emphasized user bubble with a copy action. */
 function UserMessage({ content }: { content: string }) {

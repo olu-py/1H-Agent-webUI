@@ -16,15 +16,15 @@
 - 线协议 v2：REST 端点全在 `/api/v2`（state/messages/input/commands/cancel/activate/approvals/provider/events），语义见 `build_router`；快照必含 protocol_version、event_cursor、active_session、sessions、provider/model/mode、approval、todos。
 - Provider 端点：`GET /api/v2/config/provider` 返回 `ProviderSettingsDto`（active/saved/connected，字段全非密钥，`preset` 为 key_id、`kind` 为 wire tag；`id` 为稳定身份、`name` 为自定义显示名、`enabled_models` 为预留列表，空 = 不限）；`POST` 接受可选 `id`/`name`/`enabled_models` + `preset`+`model`+可选 `base_url`/`kind`/`api_key`（`preset` 保留以兼容旧客户端；空 `id`+`preset=custom` 表示新建，由 core 生成 `custom-<32 hex>` 并强制非空唯一名称），`DELETE /api/v2/config/provider/{id}` 按 id 删除；密钥仅写系统钥匙串（写失败降级为本运行有效并回 JSON 警告），永不回显/入日志/入 TOML；`connected` 为 provider id 的缓存级解析（启动解锁、env 预载、本次运行写入），缺失≠从未配置。AppSnapshotV2 的 `provider` 仍是显示字符串（自定义优先名称），新增 `provider_id`。`GET /api/v2/config/provider/models?refresh=` 返回 `ProviderModelsDto`（模型列表 + 发现的窗口/输出元数据，`fetched_at` Unix 秒；refresh=true 有界内联重拉）；`ContextBudgetDto.window_source`（config/provider/community/registry/unknown）随 `context_updated`/快照下发，属加法字段。
 - 事件 = `Envelope`（全局单调 cursor + session_id + flattened Event，type snake_case）；消息页 = `MessagePage`（messages、next_before、has_more，游标分页）。必处理：text_delta/reasoning_delta、tool_*、approval(_resolved)、completed/failed/cancelled、todo_updated、local_command_finished、sessions_changed、child_session_progress、transcript_invalidated；未知 type 静默忽略。
-- 浏览器从快照 `event_cursor` 建立 SSE；服务端桥接 replay + live，客户端按 cursor 去重。进程内消费端使用 core 的原子 `subscribe_from`；`ResyncRequired` 时丢弃本地事件缓存、重取快照与消息页。
+- 浏览器从快照 `event_cursor` 建立 SSE；服务端消费端通过 core 的 `subscribe_cursor_from` 收到合并唤醒，再用 `events_after(cursor, limit)` 读取有界批次，客户端按 cursor 去重。游标逐出时发送 resync 标记，客户端重取快照与消息页。旧固定容量 broadcast 接口只保留兼容。
 - 前端分层：transport 唯一 fetch/EventSource/Tauri IPC、错误只走 onError；store 纯状态（`state/reducer.ts` reduce + `state/store.ts` useSyncExternalStore，PROTOCOL_VERSION 检查，未知 type 静默忽略）；actions 提供语义 action 集（`actions.ts`，只调 Transport 并回灌 store）；view 只调 actions、禁止直连 transport。消费端 Transport 接口见 `web/src/transport/transport.ts`。
-- 任何消费端（含 TUI/Desktop）：命令 = AppHandle 方法（与 HTTP 同通道，禁止第二套命令语义）、事件 = `subscribe()/replay_after()/current_cursor()`（消费 Envelope/Event，禁止解析 AgentEvent）、快照 = `snapshot()/messages()`；接入点 `AppService::start(CoreConfig) -> AppHandle`。
+- 任何消费端（含 TUI/Desktop）：命令 = AppHandle 方法（与 HTTP 同通道，禁止第二套命令语义）、事件 = 原子 cursor replay/watch（消费 Envelope/Event，禁止解析 AgentEvent）、快照 = `snapshot()/messages()`；接入点 `AppService::start(CoreConfig) -> AppHandle`。Desktop 通过有界 invoke 批次等待事件，取消 IPC waiter 与携带 submit 序号的 Agent cancel 分开；真实后端 CPU 取消仍须独立验证。
 
 ## 不变量
 
 - v2 是破坏性升级（移除 v1 路由与旧 DTO，`EventDto`/`AppStateDto`/`ServerCommand` 不复存在）；此后只做加法演进：新增类型/字段须旧 UI 可忽略；禁止改语义/改名/复用旧 type。
 - 新增 AgentEvent 变体一次接通：forward -> session.rs handle_event -> routed_to_event -> EventBridge -> 前端处理，漏一处静默丢事件。
-- 只有 transport 触网络、view 触 DOM；任何消费端不得另起事件/命令通路。
+- 只有 transport 触网络、view 触 DOM；任何消费端不得另起事件/命令通路。正文刷新与退出取消在途读取；写入前检查请求代际和 active session，丢弃迟到正文/404。Desktop 登记票据区分复用 request id；取消应答在 Rust 工作结束及注册项释放后返回。
 - Approval oneshot sender 不可序列化：DTO 只带 approval_id；超时按拒绝并发终态。
 - ts-rs 类型与 core 同源：core 先提交 `bindings/`，本仓库定向更新依赖后运行 `bash scripts/core-bindings.sh sync`；不得手改 `web/ts/`。
 - 联调可用 Cargo path patch + `PROTIUM_CORE_PATH` 同步本地 bindings；交付时必须取消两项覆盖，从锁定 Git checkout 重新 sync/check。

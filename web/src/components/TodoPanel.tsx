@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { TodoDto } from "../types";
 import type { ChatActions } from "../hooks";
 import {
@@ -15,7 +15,7 @@ import { Icon } from "./icons";
  * 1-based display index (`/todo done|undo|remove|doing|edit <index>`), so the
  * panel never diverges from the server's task list.
  */
-export function TodoPanel({ todos, actions, onClose }: { todos: TodoDto[]; actions: ChatActions; onClose: () => void }) {
+export const TodoPanel = memo(function TodoPanel({ todos, actions, onClose }: { todos: TodoDto[]; actions: ChatActions; onClose: () => void }) {
   const [newTitle, setNewTitle] = useState("");
   const [editing, setEditing] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
@@ -145,4 +145,4 @@ export function TodoPanel({ todos, actions, onClose }: { todos: TodoDto[]; actio
       </div>
     </div>
   );
-}
+});

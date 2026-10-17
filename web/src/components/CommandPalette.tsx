@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatActions } from "../hooks";
 import { filterCommands } from "../lib/commands";
 import type { PaletteCommand } from "../lib/commands";
@@ -16,7 +16,7 @@ import { ArgInput, CommandEmpty, CommandList, ConfirmView } from "./CommandList"
  * open a view instead ("Provider 设置" opens the app-level provider
  * settings dialog).
  */
-export function CommandPalette({
+export const CommandPalette = memo(function CommandPalette({
   actions,
   mode,
   onClose,
@@ -173,4 +173,4 @@ export function CommandPalette({
       </div>
     </div>
   );
-}
+});
