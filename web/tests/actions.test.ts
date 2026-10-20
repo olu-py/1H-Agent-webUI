@@ -327,8 +327,9 @@ describe("actions.setProvider / loadProviderSettings", () => {
     const store = createStore();
     const actions = createActions(transport, store);
 
-    await actions.setProvider("openai", "gpt-5", { baseUrl: "not a url" });
+    const applied = await actions.setProvider("openai", "gpt-5", { baseUrl: "not a url" });
 
+    expect(applied).toBe(false);
     expect(store.getState().lastError).toContain("Base URL");
   });
 

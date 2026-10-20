@@ -9,6 +9,17 @@ export function sessionListStatus(status: string, isActive: boolean): string {
   return isActive || status !== "就绪" ? status : "";
 }
 
+/** Human-readable active-session label for the chat header. Core snapshots can
+ * carry the English "Ready | provider | model" diagnostic string; the header
+ * should read as a local state sentence instead of leaking that format. */
+export function sessionStatusLabel(status: string, busy: boolean): string {
+  const label = status.trim();
+  if (!label || /^Ready\b/i.test(label) || label.endsWith("就绪")) {
+    return busy ? "运行中" : "空闲";
+  }
+  return label;
+}
+
 /** Status-light kind for a session row in the sidebar tree. The dot is the
  * only per-session indicator there (no status text), so it has to carry
  * approval, failure and live-work states on its own. Priority:
@@ -67,6 +78,6 @@ export function sessionDotKind(
   const label = status.trim();
   if (label.includes("失败") || label.includes("需要配置")) return "error";
   if (busy) return "busy";
-  if (!label || label.endsWith("就绪") || ENDED_LABELS.has(label)) return "";
+  if (!label || /^Ready\b/i.test(label) || label.endsWith("就绪") || ENDED_LABELS.has(label)) return "";
   return "busy";
 }

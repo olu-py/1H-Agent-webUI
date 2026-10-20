@@ -9,6 +9,12 @@ export type IconName =
   | "stop"
   | "plus"
   | "search"
+  | "memory"
+  | "server"
+  | "monitor"
+  | "eye"
+  | "eyeOff"
+  | "settings"
   | "sun"
   | "moon"
   | "sparkles"
@@ -54,6 +60,45 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <circle cx="11" cy="11" r="7" />
       <path d="m21 21-4.3-4.3" />
+    </>
+  ),
+  memory: (
+    <>
+      <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z" />
+    </>
+  ),
+  server: (
+    <>
+      <rect x="3" y="4" width="18" height="6" rx="2" />
+      <rect x="3" y="14" width="18" height="6" rx="2" />
+      <path d="M7 7h.01M7 17h.01" />
+    </>
+  ),
+  monitor: (
+    <>
+      <rect x="3" y="4" width="18" height="13" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  eyeOff: (
+    <>
+      <path d="m3 3 18 18" />
+      <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+      <path d="M9.9 5.2A10.8 10.8 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.1 4.1M6.1 6.1A17.4 17.4 0 0 0 2 12s3.5 7 10 7a10.7 10.7 0 0 0 5.9-1.8" />
+    </>
+  ),
+  settings: (
+    <>
+      <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3" />
+      <circle cx="4" cy="12" r="2" />
+      <circle cx="12" cy="6" r="2" />
+      <circle cx="20" cy="14" r="2" />
     </>
   ),
   sun: (
@@ -182,6 +227,9 @@ const TITLES: Partial<Record<IconName, string>> = {
   stop: "停止",
   plus: "新建",
   search: "搜索",
+  memory: "工作区记忆",
+  server: "Provider",
+  monitor: "跟随系统",
   sun: "浅色主题",
   moon: "深色主题",
   sparkles: "跟随系统",

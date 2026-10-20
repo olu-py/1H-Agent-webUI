@@ -36,7 +36,8 @@ describe("SessionTree rendering", () => {
     const rows = html.match(/role="treeitem"/g) ?? [];
     const nodes = html.match(/<[a-z][^>]*>/gi) ?? [];
     expect(rows).toHaveLength(25);
-    expect(nodes).toHaveLength(152);
+    // Idle rows no longer render the always-on status dot.
+    expect(nodes).toHaveLength(127);
     expect(nodes.length).toBeLessThan(2000);
     expect(html).not.toContain("Session 1000");
   });

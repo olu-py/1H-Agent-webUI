@@ -49,7 +49,7 @@ export interface ChatActions {
   activate(sessionId: string): Promise<void>;
   forkSession(sessionId: string): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
-  setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void>;
+  setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<boolean>;
   removeProvider(id: string): Promise<void>;
   loadProviderSettings(): Promise<void>;
   loadProviderModels(refresh?: boolean): Promise<ProviderModelsDto | null>;

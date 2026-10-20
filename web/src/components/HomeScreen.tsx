@@ -1,19 +1,16 @@
 import { useRef, useState } from "react";
 import type { ChatActions } from "../hooks";
 import type { UiState } from "../state/reducer";
+import type { ThemePreference } from "../lib/theme";
+import { themeLabel } from "../lib/theme";
 import { modeInfo } from "../lib/modes";
+import { primaryModifier } from "../lib/platform";
+import { QUICK_STARTS } from "../lib/quick-start";
 import { sessionListStatus } from "../lib/session-status";
 import { Icon } from "./icons";
 import { ModeSegmented } from "./ModeSegmented";
 import { SessionMenu } from "./SessionMenu";
 import { ProviderSwitcher } from "./ProviderSwitcher";
-
-/** Quick-start suggestions under the composer card; clicking fills the input. */
-const HOME_CHIPS: Array<{ label: string; prompt: string }> = [
-  { label: "梳理仓库结构", prompt: "梳理这个仓库的模块结构，输出一份架构说明" },
-  { label: "修复失败的测试", prompt: "运行测试，修复当前失败的用例并说明原因" },
-  { label: "调研重试策略", prompt: "调研 Provider 的重试与降级策略，给出建议" },
-];
 
 /**
  * Home screen (immersive layout): vertically centered hero + a hollow card
@@ -29,11 +26,17 @@ const HOME_CHIPS: Array<{ label: string; prompt: string }> = [
 export function HomeScreen({
   state,
   actions,
+  theme,
+  onCycleTheme,
+  onTogglePalette,
   onOpenProvider,
   onOpenMemory,
 }: {
   state: UiState;
   actions: ChatActions;
+  theme: ThemePreference;
+  onCycleTheme: () => void;
+  onTogglePalette: () => void;
   /** Opens the app-owned provider settings modal (same one as the composer). */
   onOpenProvider: () => void;
   onOpenMemory: () => void;
@@ -50,16 +53,40 @@ export function HomeScreen({
   };
 
   const mode = modeInfo(pendingMode);
+  const themeTitle = themeLabel(theme);
+  const modifier = primaryModifier();
 
   return (
     <section className="home">
+      <div className="home-actions">
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={onTogglePalette}
+          title={`命令面板（${modifier}+K）`}
+          aria-label="命令面板"
+        >
+          <Icon name="palette" size={16} />
+        </button>
+        <button type="button" className="icon-btn" onClick={onOpenMemory} title="工作区记忆" aria-label="工作区记忆">
+          <Icon name="memory" size={16} />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={onCycleTheme}
+          title={themeTitle}
+          aria-label={themeTitle}
+        >
+          <Icon name={theme === "light" ? "sun" : theme === "dark" ? "moon" : "monitor"} size={16} />
+        </button>
+      </div>
       <div className="home-inner">
         <header className="home-hero">
           <div className="home-hero-row">
             <div className="home-logo" aria-hidden="true">
               <Icon name="sparkles" size={22} />
             </div>
-            <button type="button" className="icon-btn" onClick={onOpenMemory} title="工作区记忆" aria-label="工作区记忆"><Icon name="search" size={16} /></button>
             <h1 className="home-title">1H-Agent</h1>
           </div>
           <p className="home-subtitle">极致轻量、权限感知的 Agent</p>
@@ -123,13 +150,13 @@ export function HomeScreen({
                 <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行
               </span>
               <span>
-                <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> 命令面板
+                <kbd>{modifier}</kbd>+<kbd>K</kbd> 命令面板
               </span>
             </span>
           </div>
 
           <div className="chips" aria-label="快捷开始">
-            {HOME_CHIPS.map((chip) => (
+            {QUICK_STARTS.map((chip) => (
               <button
                 key={chip.label}
                 type="button"
@@ -169,7 +196,7 @@ export function HomeScreen({
                         onClick={() => void actions.activate(session.id)}
                         title={session.title || "(无标题)"}
                       >
-                        <span className={`session-dot ${session.busy ? "busy" : ""}`} />
+                        {session.busy ? <span className="session-dot busy" /> : null}
                         <span className="session-title">{session.title || "(无标题)"}</span>
                         <span className="session-status">
                           {session.busy
