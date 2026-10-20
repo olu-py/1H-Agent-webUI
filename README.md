@@ -60,7 +60,7 @@ scripts\restart-demo.bat  # demo 模式一键重启：停止运行中的实例�
 
 改完代码用 `scripts\restart-demo.bat` 一键重启；任一 start 脚本也可透传 `-Restart`（如 `scripts\start-formal.bat -Restart`）。重启优先沿用原端口；构建失败不会停止在跑的实例。
 
-Linux/macOS 对应 `bash scripts/start-web.sh`（demo 模式）。本地运行产生的状态目录及其清理方式见 [`.agents/repo-layout.md`](.agents/repo-layout.md)。
+Linux/macOS 对应 `bash scripts/start-web.sh`（demo 模式）。本地运行产生的状态目录及其清理方式见本地共享工作区 `../.agents/guides/repo-layout.md`。
 
 构建 release 二进制：
 
@@ -86,13 +86,13 @@ pnpm bench
 
 ### 本地边改边测
 
-将 `1H-Agent-webUI` 与 `protium-core` 放在同一父目录后，可在 core 尚未 push 时临时覆盖 Rust Git 依赖，并从本地 core 同步协议类型：
+在本共享工作区中，`1H-Agent-webUI` 和 `1H-Agent-core` 是同级目录。core 尚未 push 时，可临时覆盖 Rust Git 依赖，并从本地 core 同步协议类型：
 
 ```bash
 cargo --config \
-  'patch."https://github.com/olu-py/1H-Agent-core.git".protium-core.path="../protium-core"' \
+  'patch."https://github.com/olu-py/1H-Agent-core.git".protium-core.path="../1H-Agent-core"' \
   test --all-features
-PROTIUM_CORE_PATH=../protium-core bash scripts/core-bindings.sh sync
+PROTIUM_CORE_PATH=../1H-Agent-core bash scripts/core-bindings.sh sync
 ```
 
 不要改受跟踪的 `Cargo.toml`。Cargo 可能临时改写 `Cargo.lock`，本地同步也会修改 `web/ts/`；这些结果只用于联调，在 core 尚未交付时不得作为正式 Git 依赖更新提交。若相关文件开始时已有用户改动，Agent 必须先保护原差异。
@@ -119,7 +119,7 @@ Windows 使用 `.\scripts\update-core.ps1 -Rev <40-char-sha>`，然后在 Git Ba
 
 ## 浏览器界面
 
-首页列出可恢复的会话并允许新建；输入首条消息并回车即创建新会话，不会预先建立空会话。主界面包含消息流（流式文本、思考面板、工具卡片）、任务清单浮窗、模式/Provider/模型控件、命令输入框与审批弹层。实时事件经 SSE 推送；同一会话在多个标签页打开时共享同一条事件流，命令通过 REST 串行进入状态机。
+首页列出可恢复的会话并允许新建；输入首条消息并回车即创建新会话，不会预先建立空会话。主界面包含消息流（流式文本、思考面板、工具卡片）、任务清单浮窗、模式/Provider/模型控件、命令输入框与审批弹层。实时事件经 SSE 推送；同一会话在多个标签页打开时共享同一条事件流，命令通过 REST 串行进入状态机。视觉、圆角与过渡规则见 [`docs/ui-spec.md`](docs/ui-spec.md)。
 
 常用操作：
 
@@ -163,7 +163,7 @@ native_web_search = "disabled"
 
 ## AI 维护文档
 
-维护或开发本项目的 AI Agent 请先读取 [AGENTS.md](AGENTS.md)，再按任务路由只加载相关专题指南。提交、推送、PR 合并和本地同步可使用项目 Skill [`git-pr-local-sync`](.agents/skills/git-pr-local-sync/SKILL.md)，或阅读 [Push workflow](.agents/guides/push-workflow.md)。该入口提供架构、源码路由、安全边界和分级验证规则；目录结构、文件归位与生成物清理规范见 [`.agents/repo-layout.md`](.agents/repo-layout.md)。
+维护或开发本项目时，请先读取 [AGENTS.md](AGENTS.md)，再按任务路由阅读本地共享工作区 `../.agents/guides/webui/` 中的专题指南。Git 交付使用 `../.agents/skills/git-pr-local-sync/SKILL.md`。这些共享维护资料不随此仓库单独 clone 或 push；独立 clone 需另行取得工作区资料。
 
 ## 第三方声明
 

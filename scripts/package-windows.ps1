@@ -1,6 +1,6 @@
 param(
     [string]$Name = "1h-agent-web-windows-x86_64",
-    [string]$OutputDir = "../1H-Agent-Release"
+    [string]$OutputDir = "../../1H-Agent-Release"
 )
 
 $ErrorActionPreference = "Stop"
