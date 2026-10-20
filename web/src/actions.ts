@@ -36,7 +36,7 @@ export interface Actions {
   /** Deletes a specific session (not necessarily the active one): activates it
    * first, then runs `/delete`. Guarded like `forkSession`. */
   deleteSession(sessionId: string): Promise<void>;
-  setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<void>;
+  setProvider(preset: string, model: string, options?: ProviderSetOptions): Promise<boolean>;
   removeProvider(id: string): Promise<void>;
   /** Fetches the provider settings view into the store (settings dialog). */
   loadProviderSettings(): Promise<void>;

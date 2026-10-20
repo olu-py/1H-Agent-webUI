@@ -1,10 +1,22 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { ChatActions } from "../hooks";
 import type { UiState } from "../state/reducer";
 import type { Store } from "../state/store";
 import type { ThemePreference } from "../lib/theme";
+import { themeLabel } from "../lib/theme";
 import { attachToolOutputs, withPartial } from "../lib/transcript";
+import { sessionStatusLabel } from "../lib/session-status";
+import {
+  DEFAULT_READING_WIDTH,
+  MAX_READING_WIDTH,
+  MIN_READING_WIDTH,
+  clampReadingWidth,
+  readReadingWidth,
+  saveReadingWidth,
+} from "../lib/reading-width";
 import { Composer } from "./Composer";
+import { ChatEmpty } from "./ChatEmpty";
 import { MessageList } from "./MessageList";
 import { SessionTree } from "./SessionTree";
 import { StatusBar } from "./StatusBar";
@@ -66,8 +78,41 @@ export function ChatScreen({
     onToggleSessionsClosed();
   }, [actions, onToggleSessionsClosed]);
 
-  const themeTitle =
-    theme === "auto" ? "主题：跟随系统" : theme === "light" ? "主题：浅色" : "主题：深色";
+  const themeTitle = themeLabel(theme);
+  // The header carries a human status sentence, never the raw core phase enum
+  // (which reads "IDLE"/"STREAMING" in an otherwise Chinese UI).
+  const statusText = active
+    ? sessionStatusLabel(active.status, active.busy)
+    : "";
+
+  // Reading-column width: the two handles in the gutters change it
+  // symmetrically, and the value survives a reload.
+  const [readingWidth, setReadingWidth] = useState(readReadingWidth);
+  const dragRef = useRef<{ startX: number; startWidth: number; side: "left" | "right" } | null>(null);
+  useEffect(() => saveReadingWidth(readingWidth), [readingWidth]);
+  const startResize = (side: "left" | "right") => (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = { startX: event.clientX, startWidth: readingWidth, side };
+    document.body.dataset.resizing = "true";
+  };
+  const moveResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const delta = (event.clientX - drag.startX) * (drag.side === "right" ? 2 : -2);
+    setReadingWidth(clampReadingWidth(drag.startWidth + delta));
+  };
+  const endResize = () => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    delete document.body.dataset.resizing;
+  };
+  const resizeByKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    setReadingWidth((width) => clampReadingWidth(width + (event.key === "ArrowRight" ? 32 : -32)));
+  };
+  const mainStyle = { "--reading-width": `${readingWidth}px` } as CSSProperties;
 
   return (
     <section className="chat">
@@ -95,7 +140,7 @@ export function ChatScreen({
           </div>
           <button
             type="button"
-            className="primary sidebar-new"
+            className="ghost sidebar-new"
             onClick={() => void actions.executeCommand("/new")}
           >
             <Icon name="plus" size={14} />
@@ -109,12 +154,23 @@ export function ChatScreen({
             />
           </div>
           <div className="sidebar-footer">
-            <span className="provider-line">
-              <span className="dim">Provider</span> {state.provider || "—"}
-            </span>
-            <span className="model-line">
-              <span className="dim">模型</span> {state.model || "—"}
-            </span>
+            <div className="sidebar-footer-info">
+              <span className="provider-line">
+                <span className="dim">Provider</span> {state.provider || "—"}
+              </span>
+              <span className="model-line">
+                <span className="dim">模型</span> {state.model || "—"}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={onOpenProvider}
+              title="Provider 设置"
+              aria-label="Provider 设置"
+            >
+              <Icon name="settings" size={16} />
+            </button>
           </div>
         </aside>
 
@@ -123,8 +179,7 @@ export function ChatScreen({
             <div className="chat-title">
               <span className="chat-session-title">{active?.title ?? "(无标题)"}</span>
               <span className="chat-session-meta meta">
-                {active?.phase ?? ""}
-                {active?.busy ? " · 运行中" : ""}
+                {statusText}
               </span>
             </div>
             <div className="chat-controls">
@@ -141,7 +196,7 @@ export function ChatScreen({
                 <Icon name="search" size={16} />
               </button>
               <button type="button" className="icon-btn" onClick={onOpenMemory} title="工作区记忆" aria-label="工作区记忆">
-                <Icon name="search" size={16} />
+                <Icon name="memory" size={16} />
               </button>
               <button
                 type="button"
@@ -159,7 +214,7 @@ export function ChatScreen({
                 title={themeTitle}
                 aria-label={themeTitle}
               >
-                <Icon name={theme === "light" ? "sun" : theme === "dark" ? "moon" : "sparkles"} size={16} />
+                <Icon name={theme === "light" ? "sun" : theme === "dark" ? "moon" : "monitor"} size={16} />
               </button>
               <button
                 type="button"
@@ -173,15 +228,55 @@ export function ChatScreen({
             </div>
           </header>
 
-          <main className="chat-main">
-            {state.lastError ? <p className="error-banner">{state.lastError}</p> : null}
-            <MessageList
-              messages={viewMessages}
-              hasMore={state.hasMore}
-              onLoadOlder={() => void actions.loadOlder()}
-              activity={state.activity}
-              jumpRequest={jumpRequest}
+          <main className="chat-main" style={mainStyle}>
+            <div
+              className="reading-resizer left"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整中栏宽度"
+              aria-valuemin={MIN_READING_WIDTH}
+              aria-valuemax={MAX_READING_WIDTH}
+              aria-valuenow={readingWidth}
+              tabIndex={0}
+              title="拖动调整中栏宽度（双击恢复默认）"
+              onPointerDown={startResize("left")}
+              onPointerMove={moveResize}
+              onPointerUp={endResize}
+              onPointerCancel={endResize}
+              onLostPointerCapture={endResize}
+              onKeyDown={resizeByKey}
+              onDoubleClick={() => setReadingWidth(DEFAULT_READING_WIDTH)}
             />
+            <div
+              className="reading-resizer right"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整中栏宽度"
+              aria-valuemin={MIN_READING_WIDTH}
+              aria-valuemax={MAX_READING_WIDTH}
+              aria-valuenow={readingWidth}
+              tabIndex={0}
+              title="拖动调整中栏宽度（双击恢复默认）"
+              onPointerDown={startResize("right")}
+              onPointerMove={moveResize}
+              onPointerUp={endResize}
+              onPointerCancel={endResize}
+              onLostPointerCapture={endResize}
+              onKeyDown={resizeByKey}
+              onDoubleClick={() => setReadingWidth(DEFAULT_READING_WIDTH)}
+            />
+            {state.lastError ? <p className="error-banner">{state.lastError}</p> : null}
+            {viewMessages.length === 0 && !state.busy && !state.hasMore ? (
+              <ChatEmpty onPick={(text) => void actions.submit(text)} />
+            ) : (
+              <MessageList
+                messages={viewMessages}
+                hasMore={state.hasMore}
+                onLoadOlder={() => void actions.loadOlder()}
+                activity={state.activity}
+                jumpRequest={jumpRequest}
+              />
+            )}
             <Composer
               key={state.activeSession ?? "none"}
               mode={state.mode}

@@ -12,7 +12,10 @@
   --bg: #ffffff;
   --surface: #f7f8fa;
   --surface-hover: #eef0f4;
-  --border: #e4e7ee;
+  --border: rgb(0 0 0 / 8%);
+  --border-strong: rgb(0 0 0 / 14%);
+  --elevation-stroke-color: rgb(0 0 0 / 10%);
+  --focus-ring: #4176e6;
   --fg: #1b1f27;
   --muted: #667085;
   --accent: #2563eb;
@@ -25,7 +28,6 @@
   --danger: #dc2626;
   --danger-soft: rgba(220, 38, 38, 0.12);
   --code-bg: #f2f4f8;
-  --shadow-color: rgba(16, 24, 40, 0.14);
   /* Mode-segmented thumb: the gradient's depth end mixes toward fg here (and
      toward bg in the dark themes below) while the on-thumb label color flips,
      keeping label contrast in both themes. */
@@ -55,19 +57,20 @@
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
-  /* type scale — 12/14/16/18/24px ladder. The transcript body baseline is
-     1rem (16px, inherited from body), so --text-md renders input surfaces
-     at the same size as the text they produce, and each neighbouring tier
-     differs by a full 2px (the minimum clearly readable step for CJK). */
+  /* type scale — 12/13/14/16/21px ladder, aligned with DSH's 14px reading
+     baseline. The transcript and composer share --text-md so typed text and
+     rendered text stay the same size. */
   --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
-  --text-md: 1rem;
-  --text-lg: 1.125rem;
-  --text-xl: 1.5rem;
-  /* shadows */
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
-  --shadow-md: 0 4px 14px var(--shadow-color);
-  --shadow-lg: 0 10px 34px var(--shadow-color);
+  --text-sm: 0.8125rem;
+  --text-md: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.3125rem;
+  --text-code: 0.75rem;
+  /* elevation: a 0.5px hairline plus two very soft layers, instead of a
+     single heavy drop shadow. */
+  --shadow-sm: 0 0 0 0.5px var(--elevation-stroke-color), 0 1px 2px rgb(16 24 40 / 4%);
+  --shadow-md: 0 0 0 0.5px var(--elevation-stroke-color), 0 3px 8px rgb(16 24 40 / 4%), 0 0 16px rgb(16 24 40 / 3%);
+  --shadow-lg: 0 0 0 0.5px var(--elevation-stroke-color), 0 6px 18px rgb(16 24 40 / 6%), 0 0 24px rgb(16 24 40 / 4%);
   /* motion */
   --transition: var(--motion-base) var(--ease-out);
   --transition-fast: var(--motion-fast) var(--ease-out);
@@ -84,67 +87,86 @@
   --z-todo: 40;
   --z-modal: 50;
   --z-palette: 60;
-  /* Scrollbars: global themed presentation; native scrolling behavior stays intact. */
-  --scrollbar-size: 10px;
-  --scrollbar-thumb-inset: 3px;
+  /* Scrollbars: DSH-style thin inset thumb. The thumb stays transparent until
+     the pointer (or keyboard focus) is inside the scroll region. */
+  --scrollbar-size: 5px;
+  --scrollbar-thumb-inset: 1px;
   --scrollbar-thumb: color-mix(in srgb, var(--muted) 42%, transparent);
   --scrollbar-thumb-hover: color-mix(in srgb, var(--muted) 62%, transparent);
   --scrollbar-thumb-active: color-mix(in srgb, var(--accent) 72%, transparent);
   /* Chat header height: icon-btn 2rem + 0.75rem padding x2 + 1px border.
      Floating panels (todo) align their top edge to the header's bottom. */
   --header-h: calc(2rem + 2 * 0.75rem + 1px);
+  --reading-width: 48rem;
+  --reading-width-min: 36rem;
+  --reading-width-max: 64rem;
+  /* One shared strip for code / tool / thinking headers: 28px tall, 12px
+     title, 10px inline padding. */
+  --box-head-h: 28px;
+  --box-head-x: 10px;
+  --box-head-font: var(--text-xs);
 }
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0f131a;
-  --surface: #171c26;
-  --surface-hover: #1e2430;
-  --border: #2a3140;
-  --fg: #e6e9ef;
-  --muted: #8b93a7;
-  --accent: #60a5fa;
-  --accent-soft: rgba(96, 165, 250, 0.16);
-  --on-accent: #0b1220;
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --surface-hover: #151515;
+  --border: rgb(255 255 255 / 10%);
+  --border-strong: rgb(255 255 255 / 16%);
+  --elevation-stroke-color: rgb(255 255 255 / 14%);
+  --focus-ring: #7aaaff;
+  --fg: #f2f2f2;
+  --muted: #a1a1a1;
+  --accent: #7aaaff;
+  --accent-soft: rgba(122, 170, 255, 0.16);
+  --on-accent: #000000;
   --success: #4ade80;
   --success-soft: rgba(74, 222, 128, 0.14);
   --warn: #fbbf24;
   --warn-soft: rgba(251, 191, 36, 0.16);
   --danger: #f87171;
   --danger-soft: rgba(248, 113, 113, 0.16);
-  --code-bg: #131926;
-  --shadow-color: rgba(0, 0, 0, 0.5);
+  --code-bg: #0d0d0d;
+  --shadow-sm: 0 0 0 0.5px var(--elevation-stroke-color), 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-md: 0 0 0 0.5px var(--elevation-stroke-color), 0 3px 10px rgb(0 0 0 / 45%), 0 0 18px rgb(0 0 0 / 30%);
+  --shadow-lg: 0 0 0 0.5px var(--elevation-stroke-color), 0 6px 22px rgb(0 0 0 / 52%), 0 0 28px rgb(0 0 0 / 34%);
   /* Dark tones are already bright: keep the gradient close to the tone so the
      dark on-thumb label keeps contrast (see the light-theme counterpart). */
   --seg-mix: var(--bg);
   --seg-mix-pct: 82%;
-  --seg-on-thumb: #0b1220;
+  --seg-on-thumb: #000000;
 }
 
 /* Pre-JS default: follow the OS when no theme attribute is set yet. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: dark;
-    --bg: #0f131a;
-    --surface: #171c26;
-    --surface-hover: #1e2430;
-    --border: #2a3140;
-    --fg: #e6e9ef;
-    --muted: #8b93a7;
-    --accent: #60a5fa;
-    --accent-soft: rgba(96, 165, 250, 0.16);
-    --on-accent: #0b1220;
+    --bg: #000000;
+    --surface: #0a0a0a;
+    --surface-hover: #151515;
+    --border: rgb(255 255 255 / 10%);
+    --border-strong: rgb(255 255 255 / 16%);
+    --elevation-stroke-color: rgb(255 255 255 / 14%);
+    --focus-ring: #7aaaff;
+    --fg: #f2f2f2;
+    --muted: #a1a1a1;
+    --accent: #7aaaff;
+    --accent-soft: rgba(122, 170, 255, 0.16);
+    --on-accent: #000000;
     --success: #4ade80;
     --success-soft: rgba(74, 222, 128, 0.14);
     --warn: #fbbf24;
     --warn-soft: rgba(251, 191, 36, 0.16);
     --danger: #f87171;
     --danger-soft: rgba(248, 113, 113, 0.16);
-    --code-bg: #131926;
-    --shadow-color: rgba(0, 0, 0, 0.5);
+    --code-bg: #0d0d0d;
+    --shadow-sm: 0 0 0 0.5px var(--elevation-stroke-color), 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-md: 0 0 0 0.5px var(--elevation-stroke-color), 0 3px 10px rgb(0 0 0 / 45%), 0 0 18px rgb(0 0 0 / 30%);
+    --shadow-lg: 0 0 0 0.5px var(--elevation-stroke-color), 0 6px 22px rgb(0 0 0 / 52%), 0 0 28px rgb(0 0 0 / 34%);
     --seg-mix: var(--bg);
     --seg-mix-pct: 82%;
-    --seg-on-thumb: #0b1220;
+    --seg-on-thumb: #000000;
   }
 }
 
@@ -162,12 +184,18 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   background: var(--bg);
   color: var(--fg);
-  line-height: 1.5;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+/* Pointer interactions do not paint a focus ring on non-editable controls;
+   keyboard navigation restores it (the `data-input-modality` flag is set in
+   main.tsx, matching DSH's focus behavior). */
+html[data-input-modality="pointer"] :focus-visible:not(:read-write) {
+  outline-color: transparent;
 }
 ::selection {
   background: var(--accent-soft);
@@ -195,16 +223,20 @@ input:focus,
 textarea:focus,
 select:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--focus-ring);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 /* ---------- Scrollbars ---------- */
-/* Global system rule: components must not repeat scrollbar overrides. Keep
-   native scroll input/accessibility; these rules only theme presentation. */
+/* Thin scrollbars that only reveal their thumb while the pointer is in the
+   scroll region (or a child has keyboard focus). Native scrolling is intact. */
 @supports not selector(::-webkit-scrollbar) {
   * {
     scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  *:hover,
+  *:focus-within {
     scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 }
@@ -220,10 +252,15 @@ select:focus {
   }
 
   *::-webkit-scrollbar-thumb {
-    background-color: var(--scrollbar-thumb);
+    background-color: transparent;
     border: var(--scrollbar-thumb-inset) solid transparent;
     background-clip: padding-box;
     border-radius: var(--radius-full);
+  }
+
+  *:hover::-webkit-scrollbar-thumb,
+  *:focus-within::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
   }
 
   *::-webkit-scrollbar-thumb:hover {
@@ -386,6 +423,9 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   background: radial-gradient(46rem 22rem at 50% 16vh, var(--accent-soft), transparent 70%);
   pointer-events: none;
 }
+/* Pure-black dark canvas: no colored top glow; the brand mark is the only
+   chromatic element on the landing page. */
+[data-theme="dark"] .home::before { background: none; }
 /* Auto top/bottom margins center the column; content taller than the
    viewport collapses the auto margins and simply scrolls. */
 .home-inner {
@@ -423,13 +463,33 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 }
 .home-title {
   margin: 0;
-  font-size: 1.8rem;
-  letter-spacing: 0.02em;
+  font-size: 1.75rem;
+  letter-spacing: 0.01em;
 }
 .home-subtitle {
   margin: 0;
   color: var(--muted);
   font-size: var(--text-md);
+}
+/* Home utility cluster: fixed in the top-right corner so the brand row stays
+   purely brand + wordmark. The command palette, memory and theme stay reachable
+   before the first session exists. */
+.home-actions {
+  position: fixed;
+  top: var(--space-3);
+  right: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  z-index: var(--z-menu);
+}
+.home-actions .icon-btn {
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  border-color: var(--border);
+}
+.home-actions .icon-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border);
 }
 /* Hollow card: identical construction to `.composer-card` (transparent fill,
    outline-only border); typing lights the border with the shared focus ring. */
@@ -550,7 +610,9 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  /* Same 4px rhythm as the sidebar tree rows, so both session lists read the
+     same when a row is hovered or active. */
+  gap: var(--space-1);
 }
 .home-empty {
   color: var(--muted);
@@ -694,7 +756,13 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   white-space: nowrap;
   font-size: var(--text-md);
 }
-.chat-session-meta { flex: none; }
+.chat-session-meta {
+  flex: none;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .chat-controls {
   display: flex;
   gap: var(--space-1);
@@ -746,7 +814,7 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   place-items: center;
   flex: none;
 }
-.brand-name { font-weight: 700; font-size: var(--text-lg); letter-spacing: 0.02em; }
+.brand-name { font-weight: 600; font-size: var(--text-md); letter-spacing: 0.01em; }
 /* Sidebar content grid: every block (brand row, new-session button, tree
    rows, footer text) shares the same 16px horizontal inset, matching the
    main area's 16px rhythm (header / messages / composer / status bar). */
@@ -754,9 +822,15 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   margin: var(--space-3) var(--space-4) 0;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 0.4em;
-  font-weight: 600;
+  font-weight: 500;
+  color: var(--muted);
+  padding-left: var(--space-3);
+}
+.sidebar-new:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--surface-hover);
 }
 .sidebar-tree {
   flex: 1;
@@ -767,13 +841,26 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 .session-tree-viewport { height: 100%; overflow: auto; overscroll-behavior: contain; }
 .sidebar-footer {
   border-top: 1px solid var(--border);
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
   font-size: var(--text-xs);
   color: var(--muted);
   display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  overflow: hidden;
+}
+.sidebar-footer-info {
+  display: flex;
+  flex: 1;
+  min-width: 0;
   flex-direction: column;
   gap: var(--space-1);
   overflow: hidden;
+}
+.sidebar-footer .icon-btn {
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: none;
 }
 .sidebar-footer .provider-line,
 .sidebar-footer .model-line {
@@ -793,6 +880,49 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   display: flex;
   flex-direction: column;
   min-height: 0;
+  position: relative;
+  --reading-width: 48rem;
+}
+
+/* Draggable reading-column edges. The handles sit in the gutters on both
+   sides of the centered column; pointer drag changes the width symmetrically,
+   and keyboard arrows adjust it without a pointer. */
+.reading-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  opacity: 0;
+  touch-action: none;
+  transition: opacity var(--transition);
+}
+.reading-resizer.left { left: calc(50% - var(--reading-width) / 2 - 18px); }
+.reading-resizer.right { right: calc(50% - var(--reading-width) / 2 - 18px); }
+.reading-resizer::after {
+  content: "";
+  width: 2px;
+  height: 44px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  transition: background var(--transition), height var(--transition);
+}
+.reading-resizer:hover,
+.reading-resizer:focus-visible {
+  opacity: 1;
+}
+.reading-resizer:hover::after,
+.reading-resizer:focus-visible::after {
+  background: var(--accent);
+  height: 56px;
+}
+body[data-resizing] {
+  cursor: col-resize;
+  user-select: none;
 }
 
 /* ---------- Status bar (activity + context + meta + SSE) ---------- */
@@ -809,7 +939,7 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 /* Content aligns with the composer card (same 48rem centered column). */
 .status-bar-inner {
   width: 100%;
-  max-width: 48rem;
+  max-width: var(--reading-width);
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -875,9 +1005,9 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 /* Hollow card: transparent fill with only the outline border, so the
    composer reads as an open frame over the page background. */
 .composer-card {
-  max-width: 48rem;
+  max-width: var(--reading-width);
   margin: 0 auto;
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
@@ -956,15 +1086,35 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   border: 1px solid var(--border);
   background: var(--surface-hover);
   color: var(--muted);
-  border-radius: var(--radius-full);
+  /* Capsule = half of the 30px control height. Not `--radius-full`: a
+     transition starting at 999px stays clamped at 15px until the last few
+     milliseconds, so the open/close morph would read as a snap. */
+  border-radius: 15px;
   /* Matches the mode segmented control's height: the `.seg` wraps its items
      with 2px padding + 1px border, so a standalone pill with a 1px border
-     needs ~0.42em vertical padding to line up at the same size. */
-  padding: 0.42em 0.7em;
+     needs ~0.42em vertical padding to line up at the same size. The extra
+     inline padding keeps the model list readable when the panel takes the
+     trigger's width (longest row keeps ~16px of slack). */
+  padding: 0.42em calc(0.7em + var(--space-2));
   font-size: var(--text-xs);
-  transition: color var(--transition), border-color var(--transition);
+  transition:
+    color var(--transition),
+    border-color var(--transition),
+    border-radius var(--motion-base) var(--ease-out);
 }
 .provider-btn:hover:enabled { color: var(--fg); border-color: var(--accent); }
+/* Provider panel cap (B): while the picker is open the trigger stops being a
+   capsule and becomes the panel's bottom (up) or top (down) cap, so the two
+   share one `--radius-lg` corner arc. `data-cap` disappears as soon as the
+   panel starts closing, which is also when the 180ms reverse runs. */
+.provider-btn[data-cap] {
+  transition:
+    color var(--transition),
+    border-color var(--transition),
+    border-radius var(--motion-expand) var(--ease-out);
+}
+.provider-btn[data-cap="up"] { border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+.provider-btn[data-cap="down"] { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
 .provider-btn-text {
   max-width: 13rem;
   overflow: hidden;
@@ -1005,6 +1155,14 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 }
 .provider-panel.closing[data-direction="down"] {
   animation-name: provider-panel-down-close;
+}
+/* The entrance keyframes end on `clip-path: inset(0)` so the panel can grow
+   out of the trigger; once the reveal lands the clip is dropped, otherwise the
+   settled panel's shadow stays cropped. The component only sets this after the
+   entrance animation ends and clears it again when a close starts. */
+.provider-panel[data-revealed="true"] {
+  animation: none;
+  clip-path: none;
 }
 .provider-panel-list {
   max-height: min(45vh, var(--panel-list-max, 45vh));
@@ -1071,14 +1229,20 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   color: var(--muted);
 }
 .provider-model-option.active .provider-model-meta { color: inherit; }
+/* Session-wide settings entry that sits in the model list, so it follows the
+   rows' geometry: the same 4px inline inset as `.provider-panel-list` plus the
+   rows' 0.55rem label indent and no control frame. Do not add `ghost` in the
+   JSX: `button.ghost` (0,1,1) outranks this class (0,1,0) and would re-centre
+   the label inside a 1px border. */
 .provider-settings-row {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  width: 100%;
+  width: auto;
   justify-content: flex-start;
-  margin-top: var(--space-1);
+  margin: var(--space-1) var(--space-1) 0;
   padding: 0.42em 0.55rem;
+  background: transparent;
   border: none;
   border-radius: calc(var(--radius-lg) - var(--space-1));
   color: var(--muted);
@@ -1309,6 +1473,7 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
 .messages {
   flex: 1;
   overflow-y: auto;
+  font-size: var(--text-md);
   /* The virtualized list adjusts scrollTop itself (bottom pinning + anchor
      compensation); the browser's native scroll anchoring would fight those
      writes and twitch the viewport. */
@@ -1321,15 +1486,52 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   scrollbar-gutter: stable both-edges;
   padding: var(--space-3) var(--space-4) var(--space-4);
 }
+/* Empty-session state. Mirrors the home hero at a smaller scale: the same
+   sparkle mark, one-line explanation and the shared quick-start chips. */
+.chat-empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  animation: fade-in var(--motion-base) var(--ease-out);
+}
+.chat-empty-mark {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--accent), #7c3aed);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  box-shadow: var(--shadow-md);
+  margin-bottom: var(--space-2);
+}
+.chat-empty h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.chat-empty p {
+  margin: 0;
+  max-width: 26rem;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.chat-empty .chips { margin-top: var(--space-3); }
 .message-row {
-  max-width: 48rem;
+  max-width: var(--reading-width);
   margin: 0 auto;
   padding: 0.3rem 0;
   /* Rows are layout-independent blocks; containment shrinks the reflow scope
      while the streaming tail grows every frame. */
   contain: layout;
 }
-.msg { max-width: 48rem; }
+.msg { max-width: var(--reading-width); }
 .msg-user {
   display: flex;
   flex-direction: column;
@@ -1527,8 +1729,8 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   max-block-size: 60vh;
   overflow: auto;
   overscroll-behavior: contain;
-  font-size: 0.82rem;
-  line-height: 1.55;
+  font-size: var(--text-code);
+  line-height: 1.65;
   white-space: pre;
 }
 
@@ -1654,7 +1856,7 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   padding: 0.5em 0.7em;
   overflow-x: auto;
   margin: 0.3em 0 0;
-  font-size: 0.82rem;
+  font-size: var(--text-code);
 }
 .tool-result { color: var(--muted); }
 /* Folded tool output keeps the standalone block's scrollable height cap so
@@ -1696,6 +1898,11 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   width: 100%;
   height: 36px;
   box-sizing: border-box;
+  /* The row keeps the fixed 36px virtualization slot (ROW_HEIGHT in
+     SessionTree.tsx), while its pill background is inset 2px top and bottom:
+     neighbouring hover/active rows then keep a 4px gap instead of stacking
+     into one block. The 32px row matches the 2rem control band. */
+  padding: 2px 0;
 }
 .session-tree-row .session-row,
 .session-tree-row .session-item { height: 100%; box-sizing: border-box; }
@@ -1713,8 +1920,12 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   color: var(--fg);
   transition: background var(--transition);
 }
-.session-item:hover { background: var(--surface-hover); }
-.session-item.active { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
+.session-item:hover { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.session-item.active {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  border-color: transparent;
+  color: var(--fg);
+}
 .session-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; transition: background var(--transition); }
 .session-dot.busy { background: var(--accent); animation: pulse 1.2s infinite; }
 .session-dot.approval { background: var(--danger); animation: pulse 1.2s infinite; }
@@ -2101,9 +2312,9 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   left: var(--space-4);
   right: var(--space-4);
   margin: 0 auto;
-  max-width: 48rem;
+  max-width: var(--reading-width);
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   max-height: 45vh;
@@ -2133,7 +2344,214 @@ button.ghost:hover:not(:disabled) { background: var(--surface-hover); }
   .chat-sidebar.open { transform: translateX(0); visibility: visible; transition-delay: 0s; }
   .sidebar-close { display: inline-flex; }
   .status-hint { display: none; }
+  .reading-resizer { display: none; }
+  /* `.home-statusline .status-hint` is more specific than the rule above;
+     hide it explicitly or the shortcut row overflows the mobile card. */
+  .home-statusline .status-hint { display: none; }
+  .home-actions { top: var(--space-2); right: var(--space-3); }
   .activity-text { max-width: 8rem; }
+}
+
+/* Narrow composer: keep the four mode segments on one full-width row and
+   move the provider pill + send button to a second row. Letting the inner
+   `.seg` wrap instead produced a four-row stack that ate the transcript. */
+@media (max-width: 560px) {
+  .composer-row,
+  .home-row {
+    flex-wrap: wrap;
+  }
+  .composer-modes,
+  .home-row .seg {
+    flex: 1 1 100%;
+  }
+  .composer-row .provider-switcher,
+  .home-row .provider-switcher {
+    margin-left: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .composer-row .provider-btn,
+  .home-row .provider-btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .chat-controls { gap: 0; }
+  .chat-controls .icon-btn { width: 1.625rem; height: 1.625rem; }
+  .chat-header { padding: var(--space-3); gap: var(--space-2); }
+  .chat-session-title { font-size: var(--text-sm); }
+  .chat-session-meta { max-width: 7rem; font-size: 11px; }
+  .chat-empty { padding: var(--space-5) var(--space-3); }
+  .home-actions .icon-btn { width: 1.75rem; height: 1.75rem; }
+}
+
+/* ---------- DSH-aligned surfaces ---------- */
+/* Pure-black canvas with one neutral panel layer. Menus/modals sit one step
+   above the page instead of using a blue-tinted background. */
+[data-theme="dark"] .modal-card,
+[data-theme="dark"] .palette-card,
+[data-theme="dark"] .slash-popup,
+[data-theme="dark"] .todo-panel,
+[data-theme="dark"] .session-menu,
+[data-theme="dark"] .provider-panel {
+  background: var(--surface);
+}
+/* Surfaces use a half-pixel hairline; form controls keep a full pixel so the
+   editable boundary stays visible. Elevation comes from --shadow-* (0.5px
+   stroke + two soft layers), not from a single heavy drop shadow. */
+.chat-header { border-bottom-width: 0.5px; }
+.chat-sidebar { border-right-width: 0.5px; }
+.sidebar-footer { border-top-width: 0.5px; }
+.composer-card,
+.home-card,
+.modal-card,
+.palette-card,
+.slash-popup,
+.todo-panel,
+.session-menu,
+.provider-panel,
+.code-block,
+.thinking,
+.tool-call,
+.msg-system .markdown,
+.msg-compaction .markdown,
+.memory-row,
+.transcript-search-hit,
+.search-hit {
+  border-width: 0.5px;
+}
+.code-head { border-bottom-width: 0.5px; }
+.tool-body { border-top-width: 0.5px; }
+.thinking[data-open="true"] .thinking-head { border-bottom-width: 0.5px; }
+.composer-card,
+.home-card {
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---------- Markdown and code blocks ---------- */
+/* 14px reading baseline, 12px code, 16px code surfaces, hairline frames.
+   The syntax token classes are consumed by the design demo; product code
+   blocks keep the same surface and typography until a highlighter lands. */
+.markdown { line-height: 1.65; }
+.markdown p { margin: 0.45em 0; }
+.markdown h1, .markdown h2, .markdown h3 {
+  margin: 0.8em 0 0.35em;
+  line-height: 1.3;
+}
+.markdown h1 { font-size: 1.5em; }
+.markdown h2 { font-size: 1.3em; }
+.markdown h3 { font-size: 1.15em; }
+.markdown :not(pre) > code {
+  background: var(--code-bg);
+  border: 0.5px solid var(--border);
+  border-radius: 6px;
+  padding: 0.1em 0.38em;
+  font-size: 0.92em;
+}
+.markdown blockquote {
+  margin: 0.5em 0;
+  padding: 0.15em 0.9em;
+  border-left: 2px solid var(--border-strong);
+  color: var(--muted);
+}
+.markdown table.md-table {
+  border-width: 0.5px;
+  font-size: 0.9em;
+}
+.markdown table.md-table th,
+.markdown table.md-table td { border-width: 0.5px; }
+.code-block {
+  margin: 0.65em 0;
+  background: var(--code-bg);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.code-head {
+  padding: 0.5em 0.9em;
+  border-bottom: 0.5px solid var(--border);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--surface);
+}
+.code-lang { font-weight: 600; text-transform: lowercase; }
+.code-copy {
+  font-size: 0.6875rem;
+  padding: 0.15em 0.45em;
+}
+.code-block .code-body {
+  padding: 0.85em 1em;
+  max-block-size: 60vh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  font-size: var(--text-code);
+  line-height: 1.65;
+  white-space: pre;
+  tab-size: 2;
+}
+.tool-body pre,
+.msg-tool-output pre {
+  font-size: var(--text-code);
+  line-height: 1.6;
+}
+
+/* Demo-only syntax colors, mirroring DSH's muted Shiki palette. */
+.tok-key { color: #7c3aed; }
+.tok-str { color: #15803d; }
+.tok-com { color: #6b7280; font-style: italic; }
+.tok-num { color: #b45309; }
+.tok-fn { color: #2563eb; }
+[data-theme="dark"] .tok-key { color: #c4b5fd; }
+[data-theme="dark"] .tok-str { color: #86efac; }
+[data-theme="dark"] .tok-com { color: #8b93a7; }
+[data-theme="dark"] .tok-num { color: #fbbf24; }
+[data-theme="dark"] .tok-fn { color: #93c5fd; }
+
+/* ---------- Transcript box headers ---------- */
+/* Code, tool and thinking are three different surfaces, but their headers are
+   one component rhythm: 28px strip, 12px title, 10px inline padding, 11px
+   trailing control/badge. Keeping these equal makes stacked cards read as a
+   single transcript instead of three unrelated widgets. */
+.code-head,
+.thinking-head,
+.tool-head {
+  box-sizing: border-box;
+  height: var(--box-head-h);
+  min-height: var(--box-head-h);
+  padding: 0 var(--box-head-x);
+  font-size: var(--box-head-font);
+  line-height: 1;
+}
+.code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.thinking-head {
+  width: 100%;
+  gap: 6px;
+}
+.tool-head {
+  width: 100%;
+  gap: 8px;
+}
+.code-lang,
+.code-copy,
+.tool-head code,
+.thinking-head {
+  font-size: var(--box-head-font);
+}
+.code-copy,
+.tool-status-pill {
+  font-size: 0.6875rem;
+}
+.code-copy {
+  padding: 3px 6px;
+  line-height: 1;
+}
+.thinking .chev {
+  width: 12px;
+  height: 12px;
 }
 
 /* ---------- Shared interaction and motion ---------- */
@@ -2148,7 +2566,7 @@ button[class] {
     scale var(--transition-fast), visibility var(--transition);
 }
 button:enabled:active { scale: 0.97; }
-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
 button.danger:hover:enabled { background: color-mix(in srgb, var(--danger) 88%, var(--fg)); }
 button:disabled { box-shadow: none; scale: 1; }
 .todo-mini, .todo-toggle { min-width: 1.75rem; min-height: 1.75rem; justify-content: center; align-items: center; border-radius: var(--radius-sm); }
@@ -2212,8 +2630,14 @@ button:disabled { box-shadow: none; scale: 1; }
     opacity: 0;
     transform: scaleY(0.96);
     /* Start by revealing only the trigger-sized bottom edge; the list then
-       grows upward out of the pill. */
+       grows upward out of the pill. The explicit `to` inset (instead of the
+       implicit `none`) is what makes the reveal interpolate in Chromium. */
     clip-path: inset(calc(100% - var(--panel-origin, 32px)) 0 0 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    clip-path: inset(0);
   }
 }
 @keyframes provider-panel-down {
@@ -2222,9 +2646,19 @@ button:disabled { box-shadow: none; scale: 1; }
     transform: scaleY(0.96);
     clip-path: inset(0 0 calc(100% - var(--panel-origin, 32px)) 0);
   }
+  to {
+    opacity: 1;
+    transform: none;
+    clip-path: inset(0);
+  }
 }
 
 @keyframes provider-panel-up-close {
+  from {
+    opacity: 1;
+    transform: none;
+    clip-path: inset(0);
+  }
   to {
     opacity: 0;
     transform: scaleY(0.96);
@@ -2232,6 +2666,11 @@ button:disabled { box-shadow: none; scale: 1; }
   }
 }
 @keyframes provider-panel-down-close {
+  from {
+    opacity: 1;
+    transform: none;
+    clip-path: inset(0);
+  }
   to {
     opacity: 0;
     transform: scaleY(0.96);

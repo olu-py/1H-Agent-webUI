@@ -79,6 +79,10 @@ export function ProviderSwitcher({
   const activeLabel = provider || providerLabel(providerKey(provider));
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
+  // The entrance keyframes end on `clip-path: inset(0)` so the panel can grow
+  // out of the trigger; once the reveal lands the clip has to come off or the
+  // panel's shadow stays cropped. `data-revealed` flips on the animationend.
+  const [revealed, setRevealed] = useState(false);
   const [triggerRect, setTriggerRect] = useState<TriggerRect | null>(null);
   const [selected, setSelected] = useState(0);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -186,6 +190,7 @@ export function ProviderSwitcher({
     }
     closingRef.current = false;
     setClosing(false);
+    setRevealed(false);
     setTriggerRect({
       top: rect.top,
       bottom: rect.bottom,
@@ -202,6 +207,8 @@ export function ProviderSwitcher({
     focusTriggerRef.current = focusTrigger;
     closingRef.current = true;
     setClosing(true);
+    // Drop the settled reveal clip so the exit animation can re-clip.
+    setRevealed(false);
     // Use the same exit duration as other floating surfaces.
     const duration = getComputedStyle(document.documentElement).getPropertyValue("--motion-base").trim();
     const milliseconds = parseFloat(duration) * (duration.endsWith("ms") ? 1 : 1000);
@@ -269,11 +276,19 @@ export function ProviderSwitcher({
   let panelStyle: PanelStyle = {};
   if (rect) {
     const margin = 8;
-    const width = Math.min(Math.max(15 * 16, rect.width), window.innerWidth - margin * 2);
-    const desiredRight = window.innerWidth - rect.right;
+    // `innerWidth` includes the scrollbar while a fixed box's `right` is
+    // measured from the content area, so using it would shift the panel left by
+    // the scrollbar width and break the right-edge alignment with the pill.
+    const viewportWidth = document.documentElement.clientWidth;
+    // The panel ends in a trigger-sized slot that the pill is layered over, so
+    // the two only read as one surface when their outer edges coincide. A floor
+    // wider than the pill (previously 15rem) left a strip of panel beside the
+    // pill; the pill is content-sized, so follow it exactly instead.
+    const width = Math.min(rect.width, viewportWidth - margin * 2);
+    const desiredRight = viewportWidth - rect.right;
     const right = Math.max(
       margin,
-      Math.min(window.innerWidth - margin - width, desiredRight),
+      Math.min(viewportWidth - margin - width, desiredRight),
     );
     const availableUp = rect.top - margin;
     const availableDown = window.innerHeight - rect.bottom - margin;
@@ -312,13 +327,17 @@ export function ProviderSwitcher({
         onKeyDown={onTriggerKeyDown}
         aria-haspopup="listbox"
         aria-expanded={open}
+        // While the panel is open (and not already closing) the trigger is the
+        // panel's bottom/top cap, so its corner radius has to follow the panel
+        // edge; see the provider panel cap rules in styles.css.
+        data-cap={open && !closing ? direction : undefined}
         aria-controls={open ? listId : undefined}
         aria-activedescendant={
           open && options[selected] ? `${listId}-option-${selected}` : undefined
         }
         title={`切换 Provider 与模型（当前 ${activeLabel} · ${model || "未设置"}）`}
       >
-        <Icon name="sparkles" size={12} />
+        <Icon name="server" size={12} />
         <span className="provider-btn-text">
           {activeLabel} · {model || "未设置"}
         </span>
@@ -331,7 +350,14 @@ export function ProviderSwitcher({
               ref={panelRef}
               className={`provider-panel ${closing ? "closing" : ""}`}
               data-direction={direction}
+              data-revealed={revealed ? "true" : undefined}
               style={panelStyle}
+              onAnimationEnd={(event) => {
+                // The panel's own entrance animation ends; child animations
+                // (e.g. the model rows) must not mark it revealed.
+                if (event.target !== event.currentTarget || closing) return;
+                setRevealed(true);
+              }}
             >
               {direction === "down" ? <div className="provider-panel-slot" /> : null}
 
@@ -356,6 +382,7 @@ export function ProviderSwitcher({
                                 option.groupKey === group.key && option.id === modelOption.id,
                             );
                             const active = group.key === activeId && modelOption.id === model;
+                            const meta = modelMeta(modelOption);
                             return (
                               <button
                                 key={modelOption.id}
@@ -366,13 +393,16 @@ export function ProviderSwitcher({
                                   index === selected ? "selected" : ""
                                 }`}
                                 aria-selected={index === selected}
-                                title={modelMeta(modelOption) || modelOption.id}
+                                // Keep the model id in the tooltip: the row can
+                                // ellipsize once the panel is as narrow as the
+                                // trigger, and the meta alone would not identify it.
+                                title={meta ? `${modelOption.id} · ${meta}` : modelOption.id}
                                 onClick={() => chooseModel(index)}
                                 onMouseEnter={() => setSelected(index)}
                               >
                                 <span className="provider-model-name">{modelOption.id}</span>
-                                {modelMeta(modelOption) ? (
-                                  <span className="provider-model-meta">{modelMeta(modelOption)}</span>
+                                {meta ? (
+                                  <span className="provider-model-meta">{meta}</span>
                                 ) : null}
                                 {active ? <Icon name="check" size={14} /> : null}
                               </button>
@@ -387,7 +417,7 @@ export function ProviderSwitcher({
 
               <button
                 type="button"
-                className="ghost provider-settings-row"
+                className="provider-settings-row"
                 onClick={() => {
                   closePanel(false);
                   onOpen();

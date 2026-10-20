@@ -12,26 +12,33 @@ export function createProviderActions(
     preset: string,
     model: string,
     options?: ProviderSetOptions,
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     try {
       await transport.setProvider(preset, model, options);
-      // The old provider's model cache must not flash as the new provider's
-      // list while the next switcher open reloads the authoritative cache.
-      store.dispatch({ type: "providerModelsCleared" });
+    } catch (error) {
+      store.dispatch({ type: "error", message: errorMessage(error) });
+      return false;
+    }
+
+    // The old provider's model cache must not flash as the new provider's
+    // list while the next switcher open reloads the authoritative cache.
+    store.dispatch({ type: "providerModelsCleared" });
+    try {
       await refreshSnapshot();
-      // Refresh the settings view too: `connected` may have changed (a newly
-      // stored key) and the dialog reads from this slice - including the id
-      // the core minted for a just-created custom provider. A failure here
-      // must not look like a failed apply: the edit itself succeeded.
-      try {
-        const settings = await transport.providerSettings();
-        store.dispatch({ type: "providerSettings", settings });
-      } catch {
-        // best-effort: the next dialog open refetches
-      }
     } catch (error) {
       store.dispatch({ type: "error", message: errorMessage(error) });
     }
+    // Refresh the settings view too: `connected` may have changed (a newly
+    // stored key) and the dialog reads from this slice - including the id
+    // the core minted for a just-created custom provider. A failure here
+    // must not look like a failed apply: the edit itself succeeded.
+    try {
+      const settings = await transport.providerSettings();
+      store.dispatch({ type: "providerSettings", settings });
+    } catch {
+      // best-effort: the next dialog open refetches
+    }
+    return true;
   };
 
   const removeProvider = async (id: string): Promise<void> => {

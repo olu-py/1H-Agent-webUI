@@ -1,5 +1,6 @@
 import type { ActivityState, UsageInfo } from "../state/reducer";
 import type { ContextBudgetDto } from "../types";
+import { primaryModifier } from "../lib/platform";
 
 function compactTokens(tokens: number): string {
   if (tokens >= 1_000_000) return `${Math.floor(tokens / 1_000_000)}m`;
@@ -77,6 +78,7 @@ export function StatusBar({
   status: string;
 }) {
   const ctx = contextView(context, contextOverlayTokens);
+  const modifier = primaryModifier();
   return (
     <div className="status-bar">
       <div className="status-bar-inner">
@@ -125,7 +127,7 @@ export function StatusBar({
               <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行
             </span>
             <span>
-              <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> 命令面板
+              <kbd>{modifier}</kbd>+<kbd>K</kbd> 命令面板
             </span>
           </span>
         </span>

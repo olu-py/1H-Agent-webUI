@@ -55,3 +55,8 @@ export function applyThemeAnimated(pref: ThemePreference): void {
 export function nextTheme(pref: ThemePreference): ThemePreference {
   return THEME_CYCLE[(THEME_CYCLE.indexOf(pref) + 1) % THEME_CYCLE.length];
 }
+
+/** Human-readable label for the theme cycle button. */
+export function themeLabel(pref: ThemePreference): string {
+  return pref === "auto" ? "主题：跟随系统" : pref === "light" ? "主题：浅色" : "主题：深色";
+}

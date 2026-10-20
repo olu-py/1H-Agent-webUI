@@ -50,7 +50,7 @@ const SessionRow = memo(function SessionRow({
         <button type="button" className={`session-item ${active ? "active" : ""}`}
           onClick={() => onActivate(session.id)} style={{ paddingLeft: `${0.5 + row.depth * 0.9}rem` }}
           title={session.title || "(无标题)"} aria-current={active ? "page" : undefined}>
-          <span className={`session-dot ${dotKind}`} />
+          {dotKind ? <span className={`session-dot ${dotKind}`} /> : null}
           <span className="session-title">{session.title || "(无标题)"}</span>
           {session.parent_id && childStatusLabel ? <span className="session-status" title={childStatusLabel}>{childStatusLabel}</span> : null}
           {session.parent_id ? <span className="session-child" title="子会话"><Icon name="fork" size={12} /></span> : null}

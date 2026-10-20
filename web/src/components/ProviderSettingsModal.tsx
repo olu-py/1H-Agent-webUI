@@ -213,7 +213,7 @@ export const ProviderSettingsModal = memo(function ProviderSettingsModal({
     setSaving(true);
     try {
       const window = windowTokens ? Number(windowTokens) : undefined;
-      await actions.setProvider(preset, model, {
+      const applied = await actions.setProvider(preset, model, {
         // Empty id + `custom` is the core's create signal.
         id: providerId || undefined,
         name: nameRequired ? trimmedName : undefined,
@@ -225,6 +225,7 @@ export const ProviderSettingsModal = memo(function ProviderSettingsModal({
           window != null && Number.isFinite(window) && window > 0 ? window : undefined,
         apiKey: apiKey.trim() || undefined,
       });
+      if (!applied) return;
       setApiKey("");
       onClose();
     } finally {
@@ -305,7 +306,7 @@ export const ProviderSettingsModal = memo(function ProviderSettingsModal({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <h3>
-          <Icon name="sparkles" size={16} />
+          <Icon name="server" size={16} />
           Provider 设置
         </h3>
         {confirmingDelete ? (
@@ -516,7 +517,7 @@ export const ProviderSettingsModal = memo(function ProviderSettingsModal({
                   title={showKey ? "隐藏" : "显示"}
                   aria-label={showKey ? "隐藏密钥" : "显示密钥"}
                 >
-                  <Icon name={showKey ? "x" : "search"} size={12} />
+                  <Icon name={showKey ? "eyeOff" : "eye"} size={12} />
                 </button>
               </span>
             </label>

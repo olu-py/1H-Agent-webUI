@@ -101,6 +101,9 @@ export function App({ store, actions }: { store: Store; actions: Actions }) {
         <HomeScreen
           state={state}
           actions={chatActions}
+          theme={theme}
+          onCycleTheme={cycleTheme}
+          onTogglePalette={togglePalette}
           onOpenProvider={openProvider}
           onOpenMemory={openMemory}
         />

@@ -11,6 +11,16 @@ import "./styles.css";
 // inline script in index.html) so React state and the DOM never diverge.
 applyTheme(getThemePreference());
 
+// Track the input modality so pointer focus does not paint a ring on
+// non-editable controls; keyboard navigation restores it (see focus.css rules).
+document.documentElement.dataset.inputModality = "keyboard";
+window.addEventListener("pointerdown", () => {
+  document.documentElement.dataset.inputModality = "pointer";
+}, true);
+window.addEventListener("keydown", () => {
+  document.documentElement.dataset.inputModality = "keyboard";
+}, true);
+
 // Native hosts expose the Tauri API; browsers use HTTP+SSE.
 function makeTransport() {
   const ipc = nativeIpc();
