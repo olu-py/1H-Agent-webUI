@@ -47,6 +47,7 @@ export class HttpSseTransport implements Transport {
   constructor(
     private readonly base: string = "",
     private readonly headers: Record<string, string> = {},
+    private readonly onUnauthorized?: () => void,
   ) {}
 
   private async request(path: string, init?: RequestInit): Promise<Response> {
@@ -55,6 +56,7 @@ export class HttpSseTransport implements Transport {
       headers: { ...this.headers, ...(init?.headers as Record<string, string> | undefined) },
     });
     if (!res.ok) {
+      if (res.status === 401) this.onUnauthorized?.();
       let api: ApiError | null = null;
       try {
         api = (await res.json()) as ApiError;
@@ -193,7 +195,10 @@ export class HttpSseTransport implements Transport {
     let closed = false;
     const read = () => {
       if (closed) return;
-      this.readLoop(onEvent).finally(() => {
+      this.readLoop(onEvent).catch((error: unknown) => {
+        // Expired credentials require a new login, not an endless retry loop.
+        if (error instanceof ApiRequestError && error.status === 401) closed = true;
+      }).finally(() => {
         if (closed) return;
         // Schedule reconnect with exponential backoff, resuming from the last
         // delivered cursor.

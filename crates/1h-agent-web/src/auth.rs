@@ -2,20 +2,14 @@
 //!
 //! The server binds loopback by default and needs no auth. A non-loopback bind
 //! (explicit `--host` or `server.bind`) requires a bearer token. The token is
-//! generated once, stored in the data directory, and printed at startup so a
-//! remote user can copy it; it is never written to logs or config.
+//! generated once and stored in the data directory; it is not logged.
 
-use std::{fs, path::Path, sync::Arc};
+use std::{fs, net::IpAddr, path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
 use rand::RngCore;
 
 const TOKEN_FILE: &str = "server_token";
-
-/// Returns whether `bind` is a loopback address (no token required).
-pub fn is_loopback(bind: &str) -> bool {
-    matches!(bind.trim(), "127.0.0.1" | "::1" | "localhost")
-}
 
 /// Loads (or creates) the persistent bearer token in `data_dir`.
 pub fn load_or_create_token(data_dir: &Path) -> Result<String> {
@@ -47,8 +41,8 @@ pub struct Auth {
 }
 
 impl Auth {
-    pub fn new(bind: &str, data_dir: &Path) -> Result<(Self, bool)> {
-        if is_loopback(bind) {
+    pub fn new(bind: IpAddr, data_dir: &Path) -> Result<(Self, bool)> {
+        if bind.is_loopback() {
             return Ok((Self { token: None }, false));
         }
         let token = load_or_create_token(data_dir)?;
@@ -90,9 +84,9 @@ mod tests {
 
     #[test]
     fn loopback_requires_no_token() {
-        for bind in ["127.0.0.1", "::1", "localhost"] {
+        for bind in ["127.0.0.1", "127.0.0.2", "::1"] {
             let dir = TempDir::new().unwrap();
-            let (auth, enabled) = Auth::new(bind, dir.path()).unwrap();
+            let (auth, enabled) = Auth::new(bind.parse().unwrap(), dir.path()).unwrap();
             assert!(!enabled);
             assert!(!auth.enabled());
             assert!(auth.check(None));
@@ -103,14 +97,14 @@ mod tests {
     #[test]
     fn non_loopback_persists_token_and_requires_it() {
         let dir = TempDir::new().unwrap();
-        let (auth, enabled) = Auth::new("0.0.0.0", dir.path()).unwrap();
+        let (auth, enabled) = Auth::new("0.0.0.0".parse().unwrap(), dir.path()).unwrap();
         assert!(enabled);
         assert!(auth.enabled());
         assert!(!auth.check(None));
         assert!(!auth.check(Some("Bearer wrong")));
 
         // Token persists across "restarts".
-        let (auth2, _) = Auth::new("0.0.0.0", dir.path()).unwrap();
+        let (auth2, _) = Auth::new("0.0.0.0".parse().unwrap(), dir.path()).unwrap();
         let token = fs::read_to_string(dir.path().join(TOKEN_FILE)).unwrap();
         assert!(auth.check(Some(&format!("Bearer {token}"))));
         assert!(auth2.check(Some(&format!("Bearer {token}"))));

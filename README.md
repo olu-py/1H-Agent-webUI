@@ -33,7 +33,26 @@ xattr -d com.apple.quarantine ./1h-agent-web
 | --- | --- |
 | `--workspace <dir>` | 工作目录，文件工具的活动范围（默认当前目录） |
 | `--port <n>` | WebUI 端口（覆盖 `server.port`，clamp 到 1024-65535） |
-| `--host <addr>` | 绑定地址（覆盖 `server.bind`）。默认仅回环 `127.0.0.1`；绑定非回环地址时强制启用 token 鉴权 |
+| `--host <addr>` | 绑定 IP 地址或 `localhost`（覆盖 `server.bind`）；`localhost` 固定为 `127.0.0.1`，IPv6 使用裸地址如 `::1`。默认 `127.0.0.1`；绑定非回环地址时强制启用 token 鉴权 |
+
+### 远程访问与凭据
+
+Web 服务只提供明文 HTTP。推荐在远程主机保持默认回环监听，再从本机建立 SSH 隧道：
+
+```bash
+# 远程主机
+./1h-agent-web --workspace /path/to/project --host 127.0.0.1 --port 7788
+# 本机；保持 SSH 连接，再打开 http://127.0.0.1:7788/
+ssh -N -L 7788:127.0.0.1:7788 user@remote-host
+```
+
+SSH 连接保护两台主机之间的传输；服务回环监听不启用 token，远程主机上能够访问该端口的其他本地进程也能访问服务。按需要限制远程主机账户和隧道访问。
+
+非回环监听启用 Bearer token，但 HTTP 本身不加密。跨不可信网络必须使用 HTTPS 反向代理或加密隧道，并用防火墙或网络隔离阻止客户端直接访问明文后端；代理到后端的链路也须处于可信边界或加密。若 HTTPS 代理转发至回环服务，回环服务不会自行启用 token：使用非回环监听加隔离，或由代理独立提供访问控制。代理日志、浏览器扩展和网络保护由部署者负责。
+
+非回环服务启动后从配置的 `data_dir/server_token` 文件读取 token，以安全方式传给访问者；按操作系统限制文件读取权限。打开 HTTPS 页面后在登录框输入 token，客户端仅在安全上下文通过 Authorization 头发送，刷新时从当前标签页的 sessionStorage 恢复；点击“退出登录”清除本标签页凭据，其他标签页和服务端 token 不受影响。新标签页可能继承打开者的 sessionStorage 初始副本；关闭标签页结束该标签页的会话。返回 401 时须重新登录。
+
+旧的 `?token=` 链接不再用于登录；页面会移除查询参数，但请求在到达页面前可能已进入历史或代理日志。若旧 token 已暴露，停止服务，安全地删除或替换 `data_dir/server_token`，重新启动后分发新 token；仅改文件不会使已运行服务加载新值。正常 Ctrl-C（Unix 也支持 SIGTERM）会关闭 SSE、等待 HTTP 请求结束并关停 Core；强制终止不保证完成清理。
 
 也可以使用 Rust 工具链从 Git 安装。仓库已提交 `web/dist/`，因此这种安装不需要 Node；`--locked` 会使用锁定的 core commit：
 
@@ -138,7 +157,7 @@ Windows 使用 `.\scripts\update-core.ps1 -Rev <40-char-sha>`，然后在 Git Ba
 
 ## 配置 Provider
 
-在界面中通过 Provider 控件添加或切换供应商。设置页列出已保存的连接；可从 OpenAI、DeepSeek、Qwen/Bailian、火山方舟和自定义兼容模板中创建。每种模板只能添加一次；非密钥配置保存到 TOML；API Key 只来自环境变量或系统钥匙串，不进入 TOML、数据库、日志或任何 HTTP 响应。
+在界面中通过 Provider 控件添加或切换供应商。设置页列出已保存的连接；可从 OpenAI、DeepSeek、Qwen/Bailian、火山方舟和自定义兼容模板中创建，内置模板各一份，自定义模板可创建多个档案。非密钥配置保存到 TOML；API Key 从环境变量或系统钥匙串读取，配置接口不主动返回密钥。Core 对已缓存的 API Key 及部分编码形式进行脱敏；未知密钥、跨字段拆分和其他编码形式不在保证范围内，请勿把密钥放入会话或工具可访问的数据。
 
 | Provider | API Key 环境变量 | 默认模型 |
 | --- | --- | --- |

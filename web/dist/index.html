@@ -3,6 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <script>
+      // Old links may already have exposed the token to the server or proxy.
+      // Remove it before loading application assets and never use it to log in.
+      (function () {
+        var url = new URL(window.location.href);
+        if (url.searchParams.has("token")) {
+          url.searchParams.delete("token");
+          history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+        }
+      })();
+    </script>
     <title>1H-Agent</title>
     <!-- Theme bootstrap: resolve the stored preference (auto/light/dark) and
          set <html data-theme> before first paint to avoid a flash. -->
@@ -20,8 +32,8 @@
         }
       })();
     </script>
-    <script type="module" crossorigin src="./assets/index-FB964rFX.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BV1kXO6y.css">
+    <script type="module" crossorigin src="./assets/index-73hclHHb.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CWhFIDjD.css">
   </head>
   <body>
     <div id="root"></div>
