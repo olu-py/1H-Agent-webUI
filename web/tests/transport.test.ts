@@ -227,4 +227,27 @@ describe("HttpSseTransport SSE contract", () => {
       vi.useRealTimers();
     }
   });
+
+  it("keeps the bearer header on SSE reconnect and stops after 401", async () => {
+    vi.useFakeTimers();
+    try {
+      const expired = vi.fn();
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(sseResponse([]))
+        .mockResolvedValueOnce(jsonResponse({ kind: "unauthorized", message: "invalid" }, 401));
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const transport = new HttpSseTransport("", { Authorization: "Bearer synthetic-secret" }, expired);
+      const sub = transport.subscribe(4, () => {});
+      await vi.advanceTimersByTimeAsync(5000);
+      sub.unsubscribe();
+      expect(expired).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      for (const [url, init] of fetchMock.mock.calls as [string, RequestInit][]) {
+        expect(url).not.toContain("synthetic-secret");
+        expect((init.headers as Record<string, string>).Authorization).toBe("Bearer synthetic-secret");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

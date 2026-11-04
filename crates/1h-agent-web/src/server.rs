@@ -10,7 +10,12 @@
 //! the server is strict same-origin (no permissive CORS).
 
 use std::{
-    collections::HashMap, convert::Infallible, net::SocketAddr, path::PathBuf, sync::Arc,
+    collections::HashMap,
+    convert::Infallible,
+    future::Future,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::PathBuf,
+    sync::Arc,
     time::Duration,
 };
 
@@ -40,6 +45,7 @@ use crate::auth::Auth;
 struct ServerState {
     handle: AppHandle,
     auth: Auth,
+    shutdown: tokio::sync::watch::Receiver<bool>,
 }
 
 /// Body of `POST /api/v2/sessions/{id}/input` and `.../commands`.
@@ -111,7 +117,26 @@ struct MemoryEditBody {
 /// Starts the WebUI server: builds the core service, binds the listener, and
 /// serves the REST/SSE API plus the embedded static frontend.
 pub async fn run(workspace_path: PathBuf, config: protium_core::config::Config) -> Result<()> {
-    let (auth, auth_enabled) = Auth::new(&config.server.bind, &config.data_dir)?;
+    run_until(workspace_path, config, shutdown_signal()).await
+}
+
+async fn run_until(
+    workspace_path: PathBuf,
+    config: protium_core::config::Config,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> Result<()> {
+    let socket = bind_address(&config.server.bind, config.server.port)?;
+    let (auth, auth_enabled) = Auth::new(socket.ip(), &config.data_dir)?;
+    // Bind before starting Core so a bad or occupied address cannot leave an
+    // engine running after startup fails.
+    let listener = tokio::net::TcpListener::bind(socket)
+        .await
+        .with_context(|| format!("cannot listen on {socket}"))?
+        .tap_io(|stream| {
+            if let Err(error) = stream.set_nodelay(true) {
+                tracing::warn!(%error, "could not disable Nagle on HTTP connection");
+            }
+        });
 
     let handle = AppService::start(CoreConfig {
         workspace: workspace_path,
@@ -124,21 +149,13 @@ pub async fn run(workspace_path: PathBuf, config: protium_core::config::Config) 
     })
     .await?;
 
-    let addr = format!("{}:{}", config.server.bind, config.server.port);
-    let socket: SocketAddr = addr
-        .parse()
-        .with_context(|| format!("invalid server bind {addr}"))?;
-
-    let state = ServerState { handle, auth };
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let state = ServerState {
+        handle: handle.clone(),
+        auth,
+        shutdown: shutdown_rx,
+    };
     let router = build_router(state);
-    let listener = tokio::net::TcpListener::bind(socket)
-        .await?
-        .tap_io(|stream| {
-            // REST replies and SSE deltas are small latency-sensitive writes.
-            if let Err(error) = stream.set_nodelay(true) {
-                tracing::warn!(%error, "could not disable Nagle on HTTP connection");
-            }
-        });
     tracing::info!(
         "1H-Agent Web (v{PROTOCOL_VERSION}) listening on http://{socket}{}",
         if auth_enabled {
@@ -148,7 +165,471 @@ pub async fn run(workspace_path: PathBuf, config: protium_core::config::Config) 
         }
     );
 
-    axum::serve(listener, router).await.map_err(Into::into)
+    // Close SSE streams on shutdown so graceful HTTP drain can finish.
+    let served = axum::serve(listener, router)
+        .with_graceful_shutdown(async move {
+            shutdown.await;
+            shutdown_tx.send_replace(true);
+        })
+        .await
+        .context("HTTP server failed");
+    let stopped = handle
+        .shutdown()
+        .await
+        .map_err(|error| anyhow::anyhow!("core shutdown failed: {}", error.message));
+    drop(handle);
+    served.and(stopped)
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut term) => {
+                tokio::select! {
+                    result = tokio::signal::ctrl_c() => {
+                        if let Err(error) = result { tracing::error!(%error, "cannot listen for Ctrl-C"); }
+                    },
+                    _ = term.recv() => {},
+                }
+                return;
+            }
+            Err(error) => tracing::warn!(%error, "cannot listen for SIGTERM"),
+        }
+    }
+    if let Err(error) = tokio::signal::ctrl_c().await {
+        tracing::error!(%error, "cannot listen for Ctrl-C");
+    }
+}
+
+fn bind_address(host: &str, port: u32) -> Result<SocketAddr> {
+    let host = host.trim();
+    let ip = if host.eq_ignore_ascii_case("localhost") {
+        IpAddr::V4(Ipv4Addr::LOCALHOST)
+    } else {
+        host.parse::<IpAddr>().with_context(|| {
+            format!("invalid server bind {host:?}: use an IP address or localhost")
+        })?
+    };
+    let port = u16::try_from(port).context("invalid server port: expected 0..=65535")?;
+    Ok(SocketAddr::new(ip, port))
+}
+
+#[cfg(test)]
+mod bind_tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn addresses_bind_and_authenticate_from_the_same_ip() {
+        let dir = tempfile::tempdir().unwrap();
+        for host in ["127.0.0.1", "localhost", "0.0.0.0"] {
+            let socket = bind_address(host, 0).unwrap();
+            let listener = tokio::net::TcpListener::bind(socket).await.unwrap();
+            let (auth, enabled) =
+                Auth::new(listener.local_addr().unwrap().ip(), dir.path()).unwrap();
+            assert_eq!(enabled, host == "0.0.0.0");
+            assert_eq!(auth.check(None), !enabled);
+        }
+        let socket = bind_address("::1", 0).unwrap();
+        match tokio::net::TcpListener::bind(socket).await {
+            Ok(listener) => {
+                let (auth, enabled) =
+                    Auth::new(listener.local_addr().unwrap().ip(), dir.path()).unwrap();
+                assert!(!enabled);
+                assert!(auth.check(None));
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::AddrNotAvailable | std::io::ErrorKind::Unsupported
+                ) =>
+            {
+                eprintln!("IPv6 loopback unavailable: {error}");
+            }
+            Err(error) => panic!("IPv6 bind failed unexpectedly: {error}"),
+        }
+        let error = bind_address("invalid.example", 0).unwrap_err().to_string();
+        assert!(error.contains("use an IP address or localhost"));
+        assert!(bind_address("127.0.0.1", 65536).is_err());
+    }
+
+    #[tokio::test]
+    async fn startup_rejects_bad_or_occupied_address_before_core_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = protium_core::config::Config::default();
+        config.data_dir = dir.path().join("data");
+        config.server.bind = "invalid.example".to_owned();
+        assert!(run(dir.path().to_owned(), config.clone()).await.is_err());
+        assert!(!config.data_dir.join("agent.db").exists());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        config.server.bind = "127.0.0.1".to_owned();
+        config.server.port = u32::from(listener.local_addr().unwrap().port());
+        let error = run(dir.path().to_owned(), config.clone())
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("cannot listen"));
+        assert!(!config.data_dir.join("agent.db").exists());
+    }
+
+    #[test]
+    fn real_server_auth_shutdown_and_restart() {
+        const CHILD: &str = "WEB_TEST_ISOLATED_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child
+                .arg("--exact")
+                .arg("server::bind_tests::real_server_auth_shutdown_and_restart")
+                .arg("--nocapture")
+                .env(CHILD, "1");
+            for name in [
+                "OPENAI_API_KEY",
+                "AGENT_API_KEY",
+                "DEEPSEEK_API_KEY",
+                "DASHSCOPE_API_KEY",
+                "QWEN_API_KEY",
+                "ARK_API_KEY",
+                "VOLCANO_API_KEY",
+            ] {
+                child.env(name, "synthetic-provider-key");
+            }
+            assert!(child.status().unwrap().success());
+            return;
+        }
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let temp = tempfile::tempdir().unwrap();
+            let mut config = protium_core::config::Config::default();
+            config.data_dir = temp.path().join("data");
+            config.server.bind = "0.0.0.0".into();
+            let port_probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            config.server.port = u32::from(port_probe.local_addr().unwrap().port());
+            drop(port_probe);
+            std::fs::create_dir_all(&config.data_dir).unwrap();
+            std::fs::write(config.data_dir.join("server_token"), "synthetic-token").unwrap();
+            let address = format!("127.0.0.1:{}", config.server.port);
+            for _ in 0..2 {
+                let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+                let task = tokio::spawn(run_until(temp.path().to_path_buf(), config.clone(), async move { let _ = stop_rx.await; }));
+                let connect = || async {
+                    tokio::time::timeout(Duration::from_secs(10), async {
+                        loop {
+                            match tokio::net::TcpStream::connect(&address).await {
+                                Ok(stream) => break stream,
+                                Err(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+                            }
+                        }
+                    }).await.unwrap()
+                };
+                let mut unauth = connect().await;
+                unauth.write_all(b"GET /api/v2/state HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").await.unwrap();
+                let mut response = Vec::new();
+                unauth.read_to_end(&mut response).await.unwrap();
+                assert!(response.starts_with(b"HTTP/1.1 401"));
+                for (credential, expected) in [("invalid-token", "401"), ("synthetic-token", "200")] {
+                    let mut rest = connect().await;
+                    rest.write_all(format!("GET /api/v2/state HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {credential}\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+                    let mut response = Vec::new();
+                    rest.read_to_end(&mut response).await.unwrap();
+                    assert!(response.starts_with(format!("HTTP/1.1 {expected}").as_bytes()));
+                    assert!(!String::from_utf8_lossy(&response).contains("synthetic-token"));
+                }
+                for body in [
+                    r#"{"preset":"synthetic-provider-key","model":"m","api_key":"synthetic-provider-key"}"#,
+                    r#"{"preset":"openai","model":"m","kind":"synthetic-provider-key","api_key":"synthetic-provider-key"}"#,
+                ] {
+                    let mut rest = connect().await;
+                    rest.write_all(format!("POST /api/v2/config/provider HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer synthetic-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                    let mut response = Vec::new();
+                    rest.read_to_end(&mut response).await.unwrap();
+                    assert!(response.starts_with(b"HTTP/1.1 400"));
+                    assert!(!String::from_utf8_lossy(&response).contains("synthetic-provider-key"));
+                }
+                let mut sse = connect().await;
+                sse.write_all(b"GET /api/v2/events?cursor=0 HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer synthetic-token\r\n\r\n").await.unwrap();
+                let mut headers = [0; 1024];
+                let n = tokio::time::timeout(Duration::from_secs(5), sse.read(&mut headers)).await.unwrap().unwrap();
+                assert!(headers[..n].starts_with(b"HTTP/1.1 200"));
+                stop_tx.send(()).unwrap();
+                tokio::time::timeout(Duration::from_secs(10), task).await.unwrap().unwrap().unwrap();
+                let mut tail = Vec::new();
+                tokio::time::timeout(Duration::from_secs(5), sse.read_to_end(&mut tail)).await.unwrap().unwrap();
+            }
+            for host in ["127.0.0.1", "localhost", "::1"] {
+                let probe_address = if host == "::1" { "[::1]:0" } else { "127.0.0.1:0" };
+                let probe = match tokio::net::TcpListener::bind(probe_address).await {
+                    Ok(listener) => listener,
+                    Err(error) if host == "::1" && matches!(error.kind(), std::io::ErrorKind::AddrNotAvailable | std::io::ErrorKind::Unsupported) => {
+                        eprintln!("IPv6 loopback unavailable: {error}");
+                        continue;
+                    }
+                    Err(error) => panic!("cannot bind {host}: {error}"),
+                };
+                config.server.bind = host.to_owned();
+                config.server.port = u32::from(probe.local_addr().unwrap().port());
+                drop(probe);
+                let connect_address = if host == "::1" { format!("[::1]:{}", config.server.port) } else { format!("127.0.0.1:{}", config.server.port) };
+                let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+                let task = tokio::spawn(run_until(temp.path().to_path_buf(), config.clone(), async move { let _ = stop_rx.await; }));
+                let mut stream = tokio::time::timeout(Duration::from_secs(10), async {
+                    loop {
+                        match tokio::net::TcpStream::connect(&connect_address).await {
+                            Ok(stream) => break stream,
+                            Err(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+                        }
+                    }
+                }).await.unwrap();
+                stream.write_all(b"GET /api/v2/state HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").await.unwrap();
+                let mut response = Vec::new();
+                stream.read_to_end(&mut response).await.unwrap();
+                assert!(response.starts_with(b"HTTP/1.1 200"), "{host} must allow loopback access");
+                stop_tx.send(()).unwrap();
+                tokio::time::timeout(Duration::from_secs(10), task).await.unwrap().unwrap().unwrap();
+            }
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sigterm_drains_server_and_allows_restart() {
+        use std::{
+            io::{Read, Write},
+            process::{Command, Stdio},
+            time::Instant,
+        };
+        const CHILD: &str = "WEB_SIGTERM_TEST_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let workspace = PathBuf::from(std::env::var_os("WEB_SIGTERM_WORKSPACE").unwrap());
+            let port: u32 = std::env::var("WEB_SIGTERM_PORT").unwrap().parse().unwrap();
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                let mut config = protium_core::config::Config::default();
+                config.data_dir = workspace.join("data");
+                config.server.bind = "127.0.0.1".into();
+                config.server.port = port;
+                run(workspace, config).await.unwrap();
+            });
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe);
+        for _ in 0..2 {
+            let mut child = Command::new(std::env::current_exe().unwrap());
+            child
+                .arg("--exact")
+                .arg("server::bind_tests::sigterm_drains_server_and_allows_restart")
+                .arg("--nocapture")
+                .env(CHILD, "1")
+                .env("WEB_SIGTERM_WORKSPACE", temp.path())
+                .env("WEB_SIGTERM_PORT", port.to_string())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            for name in [
+                "OPENAI_API_KEY",
+                "AGENT_API_KEY",
+                "DEEPSEEK_API_KEY",
+                "DASHSCOPE_API_KEY",
+                "QWEN_API_KEY",
+                "ARK_API_KEY",
+                "VOLCANO_API_KEY",
+            ] {
+                child.env(name, "synthetic-provider-key");
+            }
+            let mut child = child.spawn().unwrap();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut stream = loop {
+                match std::net::TcpStream::connect(("127.0.0.1", port)) {
+                    Ok(stream) => break stream,
+                    Err(_) if Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(20))
+                    }
+                    Err(error) => {
+                        let _ = child.kill();
+                        panic!("server startup failed: {error}");
+                    }
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream
+                .write_all(
+                    b"GET /api/v2/state HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+            let mut response = Vec::new();
+            stream.read_to_end(&mut response).unwrap();
+            assert!(response.starts_with(b"HTTP/1.1 200"));
+            assert!(
+                Command::new("kill")
+                    .arg("-TERM")
+                    .arg(child.id().to_string())
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                if let Some(status) = child.try_wait().unwrap() {
+                    assert!(status.success(), "SIGTERM did not drain normally: {status}");
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    panic!("SIGTERM shutdown timed out");
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+    }
+
+    #[test]
+    fn locked_core_redacts_provider_echo_over_http_sse_and_logs() {
+        const CHILD: &str = "WEB_REDACTION_TEST_CHILD";
+        const KEY: &str = "synthetic/provider-key.with-punctuation";
+        const OTHER: &str = "synthetic/other-provider-key-82";
+        if std::env::var_os(CHILD).is_none() {
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child
+                .arg("--exact")
+                .arg("server::bind_tests::locked_core_redacts_provider_echo_over_http_sse_and_logs")
+                .arg("--nocapture")
+                .env(CHILD, "1");
+            for name in [
+                "AGENT_API_KEY",
+                "DEEPSEEK_API_KEY",
+                "DASHSCOPE_API_KEY",
+                "QWEN_API_KEY",
+                "ARK_API_KEY",
+                "VOLCANO_API_KEY",
+            ] {
+                child.env(name, OTHER);
+            }
+            child.env("OPENAI_API_KEY", KEY);
+            let output = child.output().unwrap();
+            let logs = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(output.status.success(), "isolated test failed: {logs}");
+            assert!(!logs.contains(KEY));
+            assert!(!logs.contains(OTHER));
+            assert!(logs.contains("[REDACTED]"), "retry log was not captured");
+            return;
+        }
+        tracing::subscriber::set_global_default(
+            tracing_subscriber::fmt()
+                .with_ansi(false)
+                .with_max_level(tracing::Level::WARN)
+                .finish(),
+        )
+        .unwrap();
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let provider_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let provider_address = provider_listener.local_addr().unwrap();
+            let provider = tokio::spawn(async move {
+                for attempt in 0..3 {
+                    let (mut socket, _) = provider_listener.accept().await.unwrap();
+                    let mut request = [0u8; 16384];
+                    let _ = socket.read(&mut request).await.unwrap();
+                    let (status, body) = if attempt == 0 {
+                        ("429 Too Many Requests", format!("credential={KEY}"))
+                    } else if attempt == 1 {
+                        ("200 OK", [
+                            serde_json::json!({"type":"response.output_item.done", "item":{"type":"function_call", "call_id":"web-call-1", "name":"file_read", "arguments":"{\"path\":\"fixture.txt\"}"}}),
+                            serde_json::json!({"type":"response.completed"}),
+                        ].iter().map(|v| format!("data: {v}\n\n")).collect::<String>())
+                    } else {
+                        ("200 OK", [
+                            serde_json::json!({"type":"response.output_text.delta", "delta":"answer synthetic/other-provider-"}),
+                            serde_json::json!({"type":"response.output_text.delta", "delta":"key-82 done"}),
+                            serde_json::json!({"type":"response.completed"}),
+                        ].iter().map(|v| format!("data: {v}\n\n")).collect::<String>())
+                    };
+                    socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: text/event-stream\r\nRetry-After: 0\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                }
+            });
+            let temp = tempfile::tempdir().unwrap();
+            std::fs::write(temp.path().join("fixture.txt"), format!("normal content {KEY} {OTHER}")).unwrap();
+            let mut config = protium_core::config::Config::default();
+            config.data_dir = temp.path().join("data");
+            config.provider.base_url = format!("http://{provider_address}");
+            config.provider.context_window_tokens = Some(128_000);
+            config.model_metadata.fetch = false;
+            let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            config.server.port = u32::from(probe.local_addr().unwrap().port());
+            let address = format!("127.0.0.1:{}", config.server.port);
+            drop(probe);
+            let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+            let server = tokio::spawn(run_until(temp.path().to_owned(), config, async move { let _ = stop_rx.await; }));
+            let connect = || async {
+                tokio::time::timeout(Duration::from_secs(10), async {
+                    loop {
+                        if let Ok(socket) = tokio::net::TcpStream::connect(&address).await { break socket; }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                }).await.unwrap()
+            };
+            let mut sse = connect().await;
+            sse.write_all(b"GET /api/v2/events?cursor=0 HTTP/1.1\r\nHost: localhost\r\n\r\n").await.unwrap();
+            let mut rejected = connect().await;
+            let rejected_body = serde_json::json!({"text":format!("secret {OTHER}")}).to_string();
+            rejected.write_all(format!("POST /api/v2/sessions/new/input HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{rejected_body}", rejected_body.len()).as_bytes()).await.unwrap();
+            let mut rejection = Vec::new();
+            rejected.read_to_end(&mut rejection).await.unwrap();
+            assert!(rejection.starts_with(b"HTTP/1.1 400"));
+            assert!(!String::from_utf8_lossy(&rejection).contains(OTHER));
+            let mut memory = connect().await;
+            let memory_body = serde_json::json!({"title":"note", "content":OTHER, "candidate":false}).to_string();
+            memory.write_all(format!("POST /api/v2/memories HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{memory_body}", memory_body.len()).as_bytes()).await.unwrap();
+            let mut memory_response = Vec::new();
+            memory.read_to_end(&mut memory_response).await.unwrap();
+            assert!(memory_response.starts_with(b"HTTP/1.1 400"));
+            assert!(!String::from_utf8_lossy(&memory_response).contains(OTHER));
+            let mut input = connect().await;
+            let body = r#"{"text":"hello"}"#;
+            input.write_all(format!("POST /api/v2/sessions/new/input HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            let mut response = Vec::new();
+            input.read_to_end(&mut response).await.unwrap();
+            assert!(response.starts_with(b"HTTP/1.1 202"));
+            let mut event_bytes = Vec::new();
+            tokio::time::timeout(Duration::from_secs(15), async {
+                let mut buffer = [0; 4096];
+                while !String::from_utf8_lossy(&event_bytes).contains("\"type\":\"completed\"") {
+                    let n = sse.read(&mut buffer).await.unwrap();
+                    assert_ne!(n, 0);
+                    event_bytes.extend_from_slice(&buffer[..n]);
+                }
+            }).await.unwrap();
+            let event_text = String::from_utf8_lossy(&event_bytes);
+            assert!(!event_text.contains(KEY));
+            assert!(!event_text.contains(OTHER));
+            assert!(event_text.contains("normal content"));
+            assert!(event_text.contains("[REDACTED]"));
+            let mut state = connect().await;
+            state.write_all(b"GET /api/v2/state HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").await.unwrap();
+            let mut state_bytes = Vec::new();
+            state.read_to_end(&mut state_bytes).await.unwrap();
+            let state_text = String::from_utf8(state_bytes).unwrap();
+            let state_json: serde_json::Value = serde_json::from_str(state_text.split_once("\r\n\r\n").unwrap().1).unwrap();
+            let session = state_json["active_session"].as_str().unwrap();
+            let mut messages = connect().await;
+            messages.write_all(format!("GET /api/v2/sessions/{session}/messages HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+            let mut message_bytes = Vec::new();
+            messages.read_to_end(&mut message_bytes).await.unwrap();
+            let message_text = String::from_utf8_lossy(&message_bytes);
+            assert!(!message_text.contains(KEY));
+            assert!(!message_text.contains(OTHER));
+            assert!(message_text.contains("normal content"));
+            assert!(message_text.contains("[REDACTED]"));
+            drop(sse);
+            stop_tx.send(()).unwrap();
+            tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap().unwrap();
+            provider.await.unwrap();
+        });
+    }
 }
 
 fn build_router(state: ServerState) -> Router {
@@ -476,10 +957,7 @@ async fn post_provider_config(
         return unauthorized();
     }
     let Some(preset) = protium_core::config::ProviderPreset::parse(&body.0.preset) else {
-        return api_error_response(ApiError::bad_request(format!(
-            "unknown provider preset {}",
-            body.0.preset
-        )));
+        return api_error_response(ApiError::bad_request("unknown provider preset"));
     };
     // Empty/absent id: address the profile by its family key. For `custom`
     // the empty id is the create signal - the core mints a fresh id so
@@ -498,9 +976,7 @@ async fn post_provider_config(
         Some(tag) => match protium_core::config::ProviderKind::parse_wire_tag(tag) {
             Some(kind) => Some(kind),
             None => {
-                return api_error_response(ApiError::bad_request(format!(
-                    "unknown provider kind {tag}"
-                )));
+                return api_error_response(ApiError::bad_request("unknown provider kind"));
             }
         },
     };
@@ -522,11 +998,9 @@ async fn post_provider_config(
         } else {
             provider_id
         };
-        if let Err(error) = protium_core::secrets::store_api_key_cached(preset, key_id, api_key) {
-            tracing::warn!("keyring write failed for {key_id}; the key applies to this run only");
-            key_warning = Some(format!(
-                "密钥已生效（本次运行），但写入系统钥匙串失败：{error}"
-            ));
+        if protium_core::secrets::store_api_key_cached(preset, key_id, api_key).is_err() {
+            tracing::warn!("keyring write failed; the key applies to this run only");
+            key_warning = Some("密钥已生效（本次运行），但写入系统钥匙串失败".to_owned());
         }
     }
     match state
@@ -643,34 +1117,41 @@ async fn sse_handler(
         }
     }
     let replay_stream = futures_util::stream::iter(replay_out);
-    let stream = replay_stream.chain(async_stream::stream! {
-        const EVENT_BATCH: usize = 128;
-        loop {
-            match handle.events_after(last_cursor, EVENT_BATCH) {
-                Some(events) if !events.is_empty() => {
-                    for envelope in events {
-                        last_cursor = envelope.cursor;
-                        if filter.as_ref().is_none_or(|f| &envelope.session_id == f) {
-                            yield to_sse(&envelope);
+    let mut shutdown = state.shutdown.clone();
+    let stream = replay_stream
+        .chain(async_stream::stream! {
+            const EVENT_BATCH: usize = 128;
+            loop {
+                match handle.events_after(last_cursor, EVENT_BATCH) {
+                    Some(events) if !events.is_empty() => {
+                        for envelope in events {
+                            last_cursor = envelope.cursor;
+                            if filter.as_ref().is_none_or(|f| &envelope.session_id == f) {
+                                yield to_sse(&envelope);
+                            }
                         }
+                        continue;
                     }
-                    continue;
+                    Some(_) => {}
+                    None => {
+                        // The ring no longer covers this consumer's cursor. Ask it
+                        // to resync and continue from the authoritative current
+                        // cursor, so recovery does not create an unbounded queue.
+                        last_cursor = handle.current_cursor();
+                        yield to_sse(&resync_envelope_at(last_cursor));
+                        continue;
+                    }
                 }
-                Some(_) => {}
-                None => {
-                    // The ring no longer covers this consumer's cursor. Ask it
-                    // to resync and continue from the authoritative current
-                    // cursor, so recovery does not create an unbounded queue.
-                    last_cursor = handle.current_cursor();
-                    yield to_sse(&resync_envelope_at(last_cursor));
-                    continue;
+                if changed.changed().await.is_err() {
+                    break;
                 }
             }
-            if changed.changed().await.is_err() {
-                break;
+        })
+        .take_until(async move {
+            if !*shutdown.borrow() {
+                let _ = shutdown.changed().await;
             }
-        }
-    });
+        });
 
     Sse::new(stream)
         .keep_alive(KeepAlive::default())
